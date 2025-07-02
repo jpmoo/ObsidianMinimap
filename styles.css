@@ -1,8 +1,8 @@
-.minimap-mini-frame, .minimap-slider {
+.minimap-frame, .minimap-slider {
     --scale: 0.15;
 }
 
-.minimap-mini-frame {
+.minimap-frame {
     position: absolute;
     right: 0.8rem;
     width: 100%;
