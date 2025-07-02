@@ -1,0 +1,24 @@
+.minimap-mini-frame, .minimap-slider {
+    --scale: 0.15;
+}
+
+.minimap-mini-frame {
+    position: absolute;
+    right: 0.8rem;
+    width: 100%;
+    pointer-events: none;
+    scale: var(--scale);
+    transform-origin: top right;
+}
+
+.minimap-slider {
+    right: 0.8rem;
+    position: absolute;
+    width: calc(100% * var(--scale));
+    background-color: var(--code-comment);
+    opacity: .3;
+}
+
+.minimap-slider.dragging {
+    opacity: .5;
+}
