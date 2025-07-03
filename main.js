@@ -1,10 +1,10 @@
-const { Plugin, MarkdownView } = require("obsidian");
+const { Plugin, MarkdownView, setIcon } = require("obsidian");
 
 class NoteMinimap extends Plugin {
-    updateInterval = null;
     activeNoteView = null;
     updateNeeded = false;
     noteInstances = new Map(); // element: noteInstance
+    minimapDisabledFor = new WeakSet();
 
     onload() {
         console.log("NoteMinimap Loaded");
@@ -38,6 +38,11 @@ class NoteMinimap extends Plugin {
                     this.activeNoteView
                 );
                 this.updateElementMinimap(); // new leaf
+
+                // Toggle button
+                if (newActiveLeaf?.view?.getViewType() === "markdown") {
+                    this.addToggleButtonToLeaf(newActiveLeaf);
+                }
             })
         );
 
@@ -88,16 +93,17 @@ class NoteMinimap extends Plugin {
         this.noteInstances.forEach((noteInstance) => noteInstance.destroy());
         this.resizeObserver.disconnect();
 
-        if (this.updateInterval) {
-            clearInterval(this.updateInterval);
-            this.updateInterval = null;
-        }
+        document
+            .querySelectorAll(".minimap-toggle-button")
+            .forEach((button) => button.remove());
+
         console.log("NoteMinimap Unloaded");
     }
 
     injectMinimapIntoAllNotes() {
         const leaves = this.app.workspace.getLeavesOfType("markdown");
         for (const leaf of leaves) {
+            this.addToggleButtonToLeaf(leaf);
             this.updateElementMinimap(leaf.view.contentEl);
         }
     }
@@ -112,6 +118,17 @@ class NoteMinimap extends Plugin {
         // A new tab and not a note
         if (element.querySelector(".empty-state")) return;
 
+        // If disabled, remove the minimap if it exists
+        if (this.minimapDisabledFor.has(element)) {
+            const existing = this.noteInstances.get(element);
+            if (existing) {
+                existing.destroy();
+                this.noteInstances.delete(element);
+                this.resizeObserver.unobserve(element);
+            }
+            return;
+        }
+
         // Update or create the Note instance for this element
         if (this.noteInstances.has(element)) {
             const noteInstance = this.noteInstances.get(element);
@@ -122,6 +139,36 @@ class NoteMinimap extends Plugin {
             this.resizeObserver.observe(element);
             // console.log("Created new Note instance for leaf:", element);
         }
+    }
+
+    addToggleButtonToLeaf(leaf) {
+        const viewActions =
+            leaf.view.containerEl.querySelector(".view-actions");
+
+        if (!viewActions) return;
+
+        // Avoid adding twice
+        if (viewActions.querySelector(".minimap-toggle-button")) return;
+
+        const button = document.createElement("button");
+        button.className = "clickable-icon view-actions minimap-toggle-button";
+        button.setAttribute("aria-label", "Toggle Minimap");
+
+        // Use Obsidian's built-in icon
+        setIcon(button, "star-list");
+
+        const contentEl = leaf.view.contentEl;
+        button.onclick = () => {
+            if (this.minimapDisabledFor.has(contentEl)) {
+                this.minimapDisabledFor.delete(contentEl);
+            } else {
+                this.minimapDisabledFor.add(contentEl);
+            }
+
+            this.updateElementMinimap(contentEl);
+        };
+
+        viewActions.prepend(button);
     }
 }
 
