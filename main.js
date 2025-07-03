@@ -42,18 +42,12 @@ class NoteMinimap extends Plugin {
         );
 
         // Update previews as needed
+        this.debouncedUpdateMinimap = debounce(() => {
+            this.updateElementMinimap();
+        }, 700);
         this.registerEvent(
-            this.app.workspace.on(
-                "editor-change",
-                () => (this.updateNeeded = true)
-            )
+            this.app.workspace.on("editor-change", this.debouncedUpdateMinimap)
         );
-        this.updateInterval = setInterval(() => {
-            if (this.updateNeeded) {
-                this.updateNeeded = false;
-                this.updateElementMinimap();
-            }
-        }, 1000);
 
         // Manage closed notes
         this.registerEvent(
@@ -84,7 +78,12 @@ class NoteMinimap extends Plugin {
 
     onunload() {
         // IMPORTANT: Obsidian automatically unregisters hooks made only by using this.registerEvent or this.registerDomEvent.
-        
+
+        // Free timeout
+        if (this.debouncedUpdateMinimap?.cancel) {
+            this.debouncedUpdateMinimap.cancel();
+        }
+
         // Destroy all Note instances and disconnect resizeObserver
         this.noteInstances.forEach((noteInstance) => noteInstance.destroy());
         this.resizeObserver.disconnect();
@@ -329,9 +328,22 @@ function throttle(fn, limit, options = { leading: false, trailing: true }) {
 }
 
 function debounce(fn, delay) {
-    let timeout;
-    return function (...args) {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => fn.apply(this, args), delay);
+    let timeout = null;
+
+    function debounced(...args) {
+        if (timeout) clearTimeout(timeout);
+        timeout = setTimeout(() => {
+            timeout = null;
+            fn.apply(this, args);
+        }, delay);
+    }
+
+    debounced.cancel = () => {
+        if (timeout) {
+            clearTimeout(timeout);
+            timeout = null;
+        }
     };
+
+    return debounced;
 }
