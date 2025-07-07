@@ -9,6 +9,7 @@ class NoteMinimap extends Plugin {
     onload() {
         console.log("NoteMinimap Loaded");
 
+        // Handle resize
         const resized = new Set(); // entry.target = element
         const resize = throttle(() => {
             for (const el of resized) {
@@ -26,6 +27,16 @@ class NoteMinimap extends Plugin {
                 resized.add(entry.target);
             }
             resize();
+        });
+
+        // Handle mode change
+        this.modeObserver = new MutationObserver((entries) => {
+            const entry = entries[0]; // all entries will be about the same topic anyways
+            const noteInstance = this.noteInstances.get(
+                entry.target.parentElement
+            );
+            if (entry.attributeName === "style") noteInstance?.modeChange();
+            this.updateElementMinimap();
         });
 
         // Manage active leaf
@@ -69,6 +80,7 @@ class NoteMinimap extends Plugin {
                         note.destroy();
                         this.noteInstances.delete(el);
                         this.resizeObserver.unobserve(el);
+                        this.modeObserver.unobserve(note.sourceView);
                     }
                 }
             })
@@ -89,9 +101,10 @@ class NoteMinimap extends Plugin {
             this.debouncedUpdateMinimap.cancel();
         }
 
-        // Destroy all Note instances and disconnect resizeObserver
+        // Destroy all Note instances and disconnect Observers
         this.noteInstances.forEach((noteInstance) => noteInstance.destroy());
         this.resizeObserver.disconnect();
+        this.modeObserver.disconnect();
 
         document
             .querySelectorAll(".minimap-toggle-button")
@@ -125,6 +138,7 @@ class NoteMinimap extends Plugin {
                 existing.destroy();
                 this.noteInstances.delete(element);
                 this.resizeObserver.unobserve(element);
+                // MutationObserver.unobserve() does not exist...
             }
             return;
         }
@@ -137,6 +151,9 @@ class NoteMinimap extends Plugin {
             const noteInstance = new Note(element);
             this.noteInstances.set(element, noteInstance);
             this.resizeObserver.observe(element);
+            this.modeObserver.observe(noteInstance.sourceView, {
+                attributes: true,
+            });
             // console.log("Created new Note instance for leaf:", element);
         }
     }
@@ -176,13 +193,12 @@ class Note {
     scale = 0.15;
     constructor(element) {
         this.element = element;
-        this.scroller = this.element.querySelector(".cm-scroller");
-        this.sizer = this.element.querySelector(".cm-sizer");
+        this.sourceView = element.querySelector(".markdown-source-view");
+        this.modeChange();
         this.updateSlider = this.updateSlider.bind(this);
         this.onSliderMouseDown = this.onSliderMouseDown.bind(this);
 
-        this.iframe = this.getIframe();
-        this.slider = this.getSlider();
+        this.setupElements();
         this.updateIframe();
         this.updateSlider();
 
@@ -205,6 +221,37 @@ class Note {
         // console.log("destroyed");
     }
 
+    isReadModeActive() {
+        return this.sourceView.clientHeight === 0;
+    }
+
+    modeChange() {
+        // Check mode
+        const isReading = this.isReadModeActive();
+
+        // Un-bind scroll
+        if (this.scroller) {
+            this.scroller.removeEventListener("scroll", this.updateSlider);
+            this.scroller = null;
+        }
+
+        // Select the correct scroller and sizer elements for this mode
+        this.scroller = this.element.querySelector(
+            isReading ? ".markdown-preview-view" : ".cm-scroller"
+        );
+        this.sizer = this.element.querySelector(
+            isReading ? ".markdown-preview-sizer" : ".cm-sizer"
+        );
+
+        // Re-bind scroll
+        if (this.scroller) {
+            this.scroller.addEventListener("scroll", this.updateSlider);
+        }
+
+        // Recompute iframe and slider layout
+        this.onResize();
+    }
+
     async onResize() {
         await sleep(300);
 
@@ -218,26 +265,24 @@ class Note {
             this.sizer.getBoundingClientRect().height + "px";
     }
 
-    getIframe() {
-        let iframe = this.element.querySelector(".minimap-frame");
-        if (!iframe) {
-            // console.log("Setting up a new iframe for mini preview");
-            iframe = document.createElement("iframe");
-            iframe.className = "minimap-frame";
-            this.element.querySelector(".cm-editor").appendChild(iframe);
-        }
-        return iframe;
-    }
+    setupElements() {
+        this.element
+            .querySelectorAll(
+                ".minimap-container, .minimap-frame, .minimap-slider"
+            )
+            .forEach((e) => e.remove());
 
-    getSlider() {
-        let slider = this.element.querySelector(".minimap-slider");
-        if (!slider) {
-            // console.log("Setting up a new div for viewport slider");
-            slider = document.createElement("div");
-            slider.className = "minimap-slider";
-            this.element.querySelector(".cm-editor").appendChild(slider);
-        }
-        return slider;
+        const container = document.createElement("div");
+        container.className = "minimap-container";
+        this.element.prepend(container);
+
+        this.iframe = document.createElement("iframe");
+        this.iframe.className = "minimap-frame";
+        container.appendChild(this.iframe);
+
+        this.slider = document.createElement("div");
+        this.slider.className = "minimap-slider";
+        container.appendChild(this.slider);
     }
 
     async updateIframe() {
@@ -271,7 +316,9 @@ class Note {
 		<!DOCTYPE html>
 		<html>
 		<head>${stylesHTML}<style>${cssVars} .theme-light {--color-base-00: rgba(255, 255, 255, 0.333);} .theme-dark {--color-base-00: rgba(30, 30, 30, 0.333);}</style></head>
-		<body class="${themeClass} markdown-preview-view show-inline-title">${noteContent.innerHTML}</body>
+		<body class="${themeClass} ${
+            this.isReadModeActive() ? "" : "markdown-preview-view"
+        } show-inline-title">${noteContent.innerHTML}</body>
 		</html>
 	`;
 
@@ -279,6 +326,7 @@ class Note {
     }
 
     updateSlider() {
+        if (!this.scroller) return;
         const scrollTop = this.scroller.scrollTop;
         const boxTop = scrollTop * this.scale;
         this.slider.style.top = `${boxTop}px`;
@@ -292,7 +340,9 @@ class Note {
 
         const noteContent = this.element.cloneNode(true);
 
-        noteContent.querySelector(".cm-sizer").style = "";
+        noteContent
+            .querySelectorAll(".markdown-preview-sizer, .cm-sizer")
+            .forEach((e) => (e.style = ""));
         this.sizer.style = "";
 
         return noteContent;
