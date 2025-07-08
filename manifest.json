@@ -2,12 +2,9 @@
     "id": "minimap",
     "name": "Note Minimap",
     "author": "Yair Segel",
-    "description": "Add a minimap to your Obsidian notes.",
+    "description": "Add a minimap to your Markdown notes.",
 
     "minAppVersion": "1.8.10",
     "version": "1.0.0",
-    "isDesktopOnly": false,
-
-    "main": "main.js",
-    "css": "styles.css"
+    "isDesktopOnly": false
 }
