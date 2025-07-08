@@ -44,10 +44,10 @@ class NoteMinimap extends Plugin {
             this.app.workspace.on("active-leaf-change", (newActiveLeaf) => {
                 this.updateElementMinimap(); // old leaf
                 this.activeNoteView = newActiveLeaf.view;
-                console.log(
-                    "Active leaf changed, current active view:",
-                    this.activeNoteView
-                );
+                // console.log(
+                //     "Active leaf changed, current active view:",
+                //     this.activeNoteView
+                // );
                 this.updateElementMinimap(); // new leaf
 
                 // Toggle button
@@ -76,7 +76,7 @@ class NoteMinimap extends Plugin {
                 );
                 for (const [el, note] of this.noteInstances.entries()) {
                     if (!openEls.has(el)) {
-                        console.log("note closed", el);
+                        // console.log("note closed", el);
                         note.destroy();
                         this.noteInstances.delete(el);
                         this.resizeObserver.unobserve(el);
@@ -190,7 +190,7 @@ class NoteMinimap extends Plugin {
 }
 
 class Note {
-    scale = 0.15;
+    scale = 0.1;
     constructor(element) {
         this.element = element;
         this.sourceView = element.querySelector(".markdown-source-view");
