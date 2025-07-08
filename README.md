@@ -2,7 +2,6 @@
 
 Note Minimap adds a minimap panel inside your Obsidian editor pane, giving you a scaled-down visual overview of the entire note. Inspired by modern code editors, this plugin helps you **navigate long markdown files faster** and with more spatial awareness.
 
----
 ## ✨ Features
 
 - 🔎 **Live minimap view** of the current note - supports all view modes
@@ -12,12 +11,10 @@ Note Minimap adds a minimap panel inside your Obsidian editor pane, giving you a
 - 🔁 Per-note toggle button in the note header
 - 📏 Resizes automatically with the pane
 
----
 ## 📸 Screenshot
 
-![[screenshot.png]]
+![Screenshot of Obsidian with active minimaps.](/screenshot.png)
 
----
 ## 🚀 Getting Started
 
 ### 📦 Installation
@@ -46,7 +43,6 @@ git clone https://github.com/YairSegel/ObsidianMinimap .obsidian/plugins/note-mi
 
 ```
 
----
 ## 🧪 Usage
 
 1. Install & enable the plugin.
@@ -56,7 +52,6 @@ git clone https://github.com/YairSegel/ObsidianMinimap .obsidian/plugins/note-mi
 5. Drag the slider in the minimap to jump to different parts of the note.
 6. Click the `Toggle Minimap` button in the upper-right corner of the pane to choose whether to show minimap.
 
----
 ## ⚙️ Settings (Coming Soon)
 
 Planned features for the settings panel:
@@ -66,7 +61,6 @@ Planned features for the settings panel:
 - Show slider (off, onhover, on)
 - Opacity
 
----
 ## 📌 Limitations
 
 - Doesn't have settings yet
@@ -74,7 +68,6 @@ Planned features for the settings panel:
 - Not optimized for extremely large notes yet
 - Uses workaround to render long notes because of Obsidian's lazy loading  
 
----
 ## 💡 Ideas and Contributions
 
 Contributions, bug reports, and feature requests are welcome!  
