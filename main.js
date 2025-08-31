@@ -1,4 +1,4 @@
-const { Plugin, MarkdownView, setIcon } = require("obsidian");
+const { Plugin, MarkdownView, setIcon, debounce } = require("obsidian");
 
 class NoteMinimap extends Plugin {
     activeNoteView = null;
@@ -60,7 +60,7 @@ class NoteMinimap extends Plugin {
         // Update previews as needed
         this.debouncedUpdateMinimap = debounce(() => {
             this.updateElementMinimap();
-        }, 700);
+        }, 700, true);
         this.registerEvent(
             this.app.workspace.on("editor-change", this.debouncedUpdateMinimap)
         );
@@ -422,25 +422,4 @@ function throttle(fn, limit, options = { leading: false, trailing: true }) {
             lastThis = this;
         }
     };
-}
-
-function debounce(fn, delay) {
-    let timeout = null;
-
-    function debounced(...args) {
-        if (timeout) clearTimeout(timeout);
-        timeout = setTimeout(() => {
-            timeout = null;
-            fn.apply(this, args);
-        }, delay);
-    }
-
-    debounced.cancel = () => {
-        if (timeout) {
-            clearTimeout(timeout);
-            timeout = null;
-        }
-    };
-
-    return debounced;
 }
