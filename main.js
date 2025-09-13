@@ -17,7 +17,21 @@ class MinimapSettingTab extends PluginSettingTab {
         containerEl.empty();
 
         new Setting(containerEl)
-            .setName("Minimap Scale")
+            .setName("Enable by default")
+            .setDesc(
+                "Already opened notes will not be affected by changing this"
+            )
+            .addToggle((toggle) => {
+                toggle
+                    .setValue(this.plugin.settings.enabledByDefault)
+                    .onChange((value) => {
+                        this.plugin.settings.enabledByDefault = value;
+                        this.plugin.saveSettings();
+                    });
+            });
+
+        new Setting(containerEl)
+            .setName("Scale")
             .setDesc("Change the minimap scale (0.05 - 0.3)")
             .addSlider((slider) => {
                 slider
@@ -153,7 +167,10 @@ class NoteMinimap extends Plugin {
     }
 
     async loadSettings() {
-        this.settings = Object.assign({ scale: 0.1 }, await this.loadData());
+        this.settings = Object.assign(
+            { scale: 0.1, enabledByDefault: true },
+            await this.loadData()
+        );
     }
 
     async saveSettings() {
@@ -238,6 +255,9 @@ class NoteMinimap extends Plugin {
 
             this.updateElementMinimap(contentEl);
         };
+
+        // Handle disable-by-default
+        if (!this.settings.enabledByDefault) this.minimapDisabledFor.add(contentEl);
 
         viewActions.prepend(button);
     }
