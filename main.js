@@ -1,4 +1,37 @@
-const { Plugin, MarkdownView, setIcon, debounce } = require("obsidian");
+const {
+    Plugin,
+    MarkdownView,
+    setIcon,
+    debounce,
+    Setting,
+    PluginSettingTab,
+} = require("obsidian");
+
+class MinimapSettingTab extends PluginSettingTab {
+    constructor(plugin) {
+        super(plugin.app, plugin);
+        this.plugin = plugin;
+    }
+    display() {
+        const { containerEl } = this;
+        containerEl.empty();
+
+        new Setting(containerEl)
+            .setName("Minimap Scale")
+            .setDesc("Change the minimap scale (0.05 - 0.3)")
+            .addSlider((slider) => {
+                slider
+                    .setLimits(0.05, 0.3, 0.01)
+                    .setValue(this.plugin.settings.scale)
+                    .setDynamicTooltip()
+                    .onChange((value) => {
+                        this.plugin.settings.scale = value;
+                        this.plugin.saveSettings();
+                        this.plugin.updateAllMinimapScales();
+                    });
+            });
+    }
+}
 
 class NoteMinimap extends Plugin {
     activeNoteView = null;
@@ -6,7 +39,7 @@ class NoteMinimap extends Plugin {
     noteInstances = new Map(); // element: noteInstance
     minimapDisabledFor = new WeakSet();
 
-    onload() {
+    async onload() {
         console.log("NoteMinimap Loaded");
 
         // Handle resize
@@ -58,9 +91,13 @@ class NoteMinimap extends Plugin {
         );
 
         // Update previews as needed
-        this.debouncedUpdateMinimap = debounce(() => {
-            this.updateElementMinimap();
-        }, 700, true);
+        this.debouncedUpdateMinimap = debounce(
+            () => {
+                this.updateElementMinimap();
+            },
+            700,
+            true
+        );
         this.registerEvent(
             this.app.workspace.on("editor-change", this.debouncedUpdateMinimap)
         );
@@ -86,6 +123,8 @@ class NoteMinimap extends Plugin {
             })
         );
 
+        await this.loadSettings();
+        this.addSettingTab(new MinimapSettingTab(this));
         this.app.workspace.onLayoutReady(() => {
             this.activeNoteView =
                 this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -111,6 +150,20 @@ class NoteMinimap extends Plugin {
             .forEach((button) => button.remove());
 
         console.log("NoteMinimap Unloaded");
+    }
+
+    async loadSettings() {
+        this.settings = Object.assign({ scale: 0.1 }, await this.loadData());
+    }
+
+    async saveSettings() {
+        await this.saveData(this.settings);
+    }
+
+    updateAllMinimapScales() {
+        for (const note of this.noteInstances.values()) {
+            note.setScale(this.settings.scale);
+        }
     }
 
     injectMinimapIntoAllNotes() {
@@ -146,9 +199,10 @@ class NoteMinimap extends Plugin {
         // Update or create the Note instance for this element
         if (this.noteInstances.has(element)) {
             const noteInstance = this.noteInstances.get(element);
+            noteInstance.setScale(this.settings.scale);
             noteInstance.updateIframe();
         } else {
-            const noteInstance = new Note(element);
+            const noteInstance = new Note(element, this.settings.scale);
             this.noteInstances.set(element, noteInstance);
             this.resizeObserver.observe(element);
             this.modeObserver.observe(noteInstance.sourceView, {
@@ -190,21 +244,33 @@ class NoteMinimap extends Plugin {
 }
 
 class Note {
-    scale = 0.1;
-    constructor(element) {
+    constructor(element, scale) {
         this.element = element;
+        this.scale = scale;
         this.sourceView = element.querySelector(".markdown-source-view");
         this.modeChange();
         this.updateSlider = this.updateSlider.bind(this);
         this.onSliderMouseDown = this.onSliderMouseDown.bind(this);
 
         this.setupElements();
+        this.updateScaleCSS();
         this.updateIframe();
         this.updateSlider();
 
         // Register events - need to remove on destroy!
         this.scroller.addEventListener("scroll", this.updateSlider);
         this.slider.addEventListener("mousedown", this.onSliderMouseDown);
+    }
+
+    setScale(scale) {
+        this.scale = scale;
+        this.updateScaleCSS();
+        this.onResize();
+    }
+
+    updateScaleCSS() {
+        if (this.iframe) this.iframe.style.setProperty("--scale", this.scale);
+        if (this.slider) this.slider.style.setProperty("--scale", this.scale);
     }
 
     destroy() {
