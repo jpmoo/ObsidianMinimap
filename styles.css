@@ -1,6 +1,5 @@
 .minimap-frame {
     position: absolute;
-    right: 0.8rem;
     width: 100%;
     pointer-events: none;
     scale: var(--scale);
@@ -9,7 +8,7 @@
 }
 
 .minimap-slider {
-    right: 0.8rem;
+    right: 0;
     position: absolute;
     width: calc(100% * var(--scale));
     background-color: var(--code-comment);
@@ -25,6 +24,14 @@
     position: absolute;
     height: 100%;
     width: 100%;
+}
+
+body:not(.native-scrollbars) ::-webkit-scrollbar {
+    display: none;
+}
+
+body:not(.native-scrollbars) .minimap-disabled ::-webkit-scrollbar {
+    display: block;
 }
 
 .minimap-disabled .minimap-container,

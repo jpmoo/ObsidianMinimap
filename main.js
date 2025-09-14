@@ -392,6 +392,8 @@ class Note {
             }
         }
         cssVars += "}";
+        // Remove scrollbar inside minimap
+        cssVars += "::-webkit-scrollbar {display: none;}";
 
         const html = `
 		<!DOCTYPE html>
