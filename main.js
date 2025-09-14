@@ -44,6 +44,36 @@ class MinimapSettingTab extends PluginSettingTab {
                         this.plugin.updateAllMinimapScales();
                     });
             });
+
+        new Setting(containerEl)
+            .setName("Minimap Opacity")
+            .setDesc("Change the minimap opacity (0.05 - 1)")
+            .addSlider((slider) => {
+                slider
+                    .setLimits(0.05, 1, 0.01)
+                    .setValue(this.plugin.settings.minimapOpacity)
+                    .setDynamicTooltip()
+                    .onChange((value) => {
+                        this.plugin.settings.minimapOpacity = value;
+                        this.plugin.saveSettings();
+                        this.plugin.updateAllMinimapOpacities();
+                    });
+            });
+
+        new Setting(containerEl)
+            .setName("Slider Opacity")
+            .setDesc("Change the slider opacity (0.05 - 1)")
+            .addSlider((slider) => {
+                slider
+                    .setLimits(0.05, 1, 0.01)
+                    .setValue(this.plugin.settings.sliderOpacity)
+                    .setDynamicTooltip()
+                    .onChange((value) => {
+                        this.plugin.settings.sliderOpacity = value;
+                        this.plugin.saveSettings();
+                        this.plugin.updateAllMinimapOpacities();
+                    });
+            });
     }
 }
 
@@ -167,7 +197,12 @@ class NoteMinimap extends Plugin {
 
     async loadSettings() {
         this.settings = Object.assign(
-            { scale: 0.1, enabledByDefault: true },
+            {
+                scale: 0.1,
+                enabledByDefault: true,
+                minimapOpacity: 0.3,
+                sliderOpacity: 0.3,
+            },
             await this.loadData()
         );
     }
@@ -179,6 +214,12 @@ class NoteMinimap extends Plugin {
     updateAllMinimapScales() {
         for (const note of this.noteInstances.values()) {
             note.setScale(this.settings.scale);
+        }
+    }
+
+    updateAllMinimapOpacities() {
+        for (const note of this.noteInstances.values()) {
+            note.setOpacities(this.settings.minimapOpacity, this.settings.sliderOpacity);
         }
     }
 
@@ -269,6 +310,7 @@ class Note {
 
         this.setupElements();
         this.updateScaleCSS();
+        this.setOpacities(.3, .3);
         this.updateIframe();
         this.updateSlider();
 
@@ -281,6 +323,11 @@ class Note {
         this.scale = scale;
         this.updateScaleCSS();
         this.onResize();
+    }
+
+    setOpacities(minimapOpacity, sliderOpacity) {
+        this.minimapOpacity = minimapOpacity;
+        if (this.slider) this.slider.style.opacity = sliderOpacity;
     }
 
     updateScaleCSS() {
@@ -364,6 +411,11 @@ class Note {
         this.slider = document.createElement("div");
         this.slider.className = "minimap-slider";
         container.appendChild(this.slider);
+
+        // Set initial opacities
+        if (window.plugin?.settings) {
+            this.setOpacities(window.plugin.settings.minimapOpacity, window.plugin.settings.sliderOpacity);
+        }
     }
 
     async updateIframe() {
@@ -382,7 +434,9 @@ class Note {
             ? "theme-dark"
             : "theme-light";
 
-        const rootStyles = getComputedStyle(document.documentElement);
+        const rootStyles = getComputedStyle(
+            document.documentElement.querySelector("body")
+        );
         let cssVars = ":root {\n";
         for (let i = 0; i < rootStyles.length; i++) {
             const prop = rootStyles[i];
@@ -395,11 +449,18 @@ class Note {
         // Remove scrollbar inside minimap
         cssVars += "::-webkit-scrollbar {display: none;}";
 
+        // Dynamically override --color-base-00 with alpha
+        const base00Alpha = toRGBAAlpha(
+            rootStyles.getPropertyValue("--color-base-00").trim(),
+            this.minimapOpacity
+        );
+        const overrideVars = `--color-base-00: ${base00Alpha};`;
+
         const html = `
 		<!DOCTYPE html>
 		<html>
-		<head>${stylesHTML}<style>${cssVars} .theme-light {--color-base-00: rgba(255, 255, 255, 0.333);} .theme-dark {--color-base-00: rgba(30, 30, 30, 0.333);}</style></head>
-		<body class="${themeClass} ${
+		<head>${stylesHTML}<style>${cssVars}</style></head>
+		<body style="${overrideVars}" class="${themeClass} ${
             this.isReadModeActive() ? "" : "markdown-preview-view"
         } show-inline-title">${noteContent.innerHTML}</body>
 		</html>
@@ -506,3 +567,31 @@ function throttle(fn, limit, options = { leading: false, trailing: true }) {
         }
     };
 }
+
+function toRGBAAlpha(color, alpha) {
+    if (color.startsWith("#")) {
+        // hex to rgb
+        let hex = color.replace("#", "");
+        if (hex.length === 3)
+            hex = hex
+                .split("")
+                .map((x) => x + x)
+                .join("");
+        const num = parseInt(hex, 16);
+        const r = (num >> 16) & 255;
+        const g = (num >> 8) & 255;
+        const b = num & 255;
+        return `rgba(${r},${g},${b},${alpha})`;
+    } else if (color.startsWith("rgb")) {
+        // rgb or rgba
+        const nums = color.match(/[\d.]+/g);
+        if (nums.length >= 3) {
+            return `rgba(${nums[0]},${nums[1]},${nums[2]},${alpha})`;
+        }
+    }
+    // fallback
+    return color;
+}
+
+// Make plugin settings accessible to Note instances
+window.plugin = module.exports.default;

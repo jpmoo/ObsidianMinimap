@@ -12,12 +12,11 @@
     position: absolute;
     width: calc(100% * var(--scale));
     background-color: var(--code-comment);
-    opacity: 0.3;
     z-index: 2;
 }
 
 .minimap-slider.dragging {
-    opacity: 0.5;
+    opacity: 0.5 !important;
 }
 
 .minimap-container {
