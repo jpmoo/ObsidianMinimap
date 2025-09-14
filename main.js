@@ -51,7 +51,6 @@ class NoteMinimap extends Plugin {
     activeNoteView = null;
     updateNeeded = false;
     noteInstances = new Map(); // element: noteInstance
-    minimapDisabledFor = new WeakSet();
 
     async onload() {
         console.log("NoteMinimap Loaded");
@@ -202,7 +201,7 @@ class NoteMinimap extends Plugin {
         if (element.querySelector(".empty-state")) return;
 
         // If disabled, remove the minimap if it exists
-        if (this.minimapDisabledFor.has(element)) {
+        if (element.classList.contains("minimap-disabled")) {
             const existing = this.noteInstances.get(element);
             if (existing) {
                 existing.destroy();
@@ -247,17 +246,13 @@ class NoteMinimap extends Plugin {
 
         const contentEl = leaf.view.contentEl;
         button.onclick = () => {
-            if (this.minimapDisabledFor.has(contentEl)) {
-                this.minimapDisabledFor.delete(contentEl);
-            } else {
-                this.minimapDisabledFor.add(contentEl);
-            }
-
+            contentEl.classList.toggle("minimap-disabled");
             this.updateElementMinimap(contentEl);
         };
 
         // Handle disable-by-default
-        if (!this.settings.enabledByDefault) this.minimapDisabledFor.add(contentEl);
+        if (!this.settings.enabledByDefault)
+            contentEl.classList.add("minimap-disabled");
 
         viewActions.prepend(button);
     }
