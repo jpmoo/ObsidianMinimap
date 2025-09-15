@@ -488,6 +488,10 @@ class Note {
             .forEach((e) => (e.style = ""));
         this.sizer.style = "";
 
+        // Remove other content (fix for trouble with Editing Toolbar Plugin)
+        // noteContent.querySelectorAll(".markdown-reading-view > :not(.markdown-preview-view)").forEach((e) => (e.remove()));
+        noteContent.querySelectorAll(".markdown-source-view > :not(.cm-editor)").forEach((e) => (e.remove()));
+
         return noteContent;
     }
 
