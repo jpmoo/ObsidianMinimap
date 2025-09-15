@@ -46,8 +46,8 @@ class MinimapSettingTab extends PluginSettingTab {
             });
 
         new Setting(containerEl)
-            .setName("Minimap Opacity")
-            .setDesc("Change the minimap opacity (0.05 - 1)")
+            .setName("Opacity")
+            .setDesc("Change the minimap's background opacity (0.05 - 1)")
             .addSlider((slider) => {
                 slider
                     .setLimits(0.05, 1, 0.01)
@@ -219,7 +219,10 @@ class NoteMinimap extends Plugin {
 
     updateAllMinimapOpacities() {
         for (const note of this.noteInstances.values()) {
-            note.setOpacities(this.settings.minimapOpacity, this.settings.sliderOpacity);
+            note.setOpacities(
+                this.settings.minimapOpacity,
+                this.settings.sliderOpacity
+            );
         }
     }
 
@@ -259,7 +262,7 @@ class NoteMinimap extends Plugin {
             noteInstance.setScale(this.settings.scale);
             noteInstance.updateIframe();
         } else {
-            const noteInstance = new Note(element, this.settings.scale);
+            const noteInstance = new Note(element, this.settings);
             this.noteInstances.set(element, noteInstance);
             this.resizeObserver.observe(element);
             this.modeObserver.observe(noteInstance.sourceView, {
@@ -300,9 +303,8 @@ class NoteMinimap extends Plugin {
 }
 
 class Note {
-    constructor(element, scale) {
+    constructor(element, settings) {
         this.element = element;
-        this.scale = scale;
         this.sourceView = element.querySelector(".markdown-source-view");
         this.modeChange();
         this.updateSlider = this.updateSlider.bind(this);
@@ -310,7 +312,8 @@ class Note {
 
         this.setupElements();
         this.updateScaleCSS();
-        this.setOpacities(.3, .3);
+        this.setScale(settings.scale);
+        this.setOpacities(settings.minimapOpacity, settings.sliderOpacity);
         this.updateIframe();
         this.updateSlider();
 
@@ -328,6 +331,7 @@ class Note {
     setOpacities(minimapOpacity, sliderOpacity) {
         this.minimapOpacity = minimapOpacity;
         if (this.slider) this.slider.style.opacity = sliderOpacity;
+        this.updateIframe();
     }
 
     updateScaleCSS() {
@@ -411,11 +415,6 @@ class Note {
         this.slider = document.createElement("div");
         this.slider.className = "minimap-slider";
         container.appendChild(this.slider);
-
-        // Set initial opacities
-        if (window.plugin?.settings) {
-            this.setOpacities(window.plugin.settings.minimapOpacity, window.plugin.settings.sliderOpacity);
-        }
     }
 
     async updateIframe() {
@@ -592,6 +591,3 @@ function toRGBAAlpha(color, alpha) {
     // fallback
     return color;
 }
-
-// Make plugin settings accessible to Note instances
-window.plugin = module.exports.default;
