@@ -6,7 +6,7 @@ Note Minimap adds a minimap panel inside your Obsidian editor pane, giving you a
 
 - 🔎 **Live minimap view** of the current note - supports all view modes
 - 🖱️ **Draggable viewport slider** to scroll instantly
-- 🌓 Supports both light and dark themes
+- 🌓 Supports all themes
 - 💠 Automatically updates on scroll and content change
 - 🔁 Per-note toggle button in the note header
 - 📏 Resizes automatically with the pane
@@ -20,7 +20,7 @@ Note Minimap adds a minimap panel inside your Obsidian editor pane, giving you a
 ### 📦 Installation
 
 You can install Note Minimap in **three** ways:
-#### 1. From the Community Plugins Browser (Coming Soon $_{hopefully}$)
+#### 1. From the Community Plugins Browser (Recommended!)
 
 - Open Obsidian
 - Go to `Settings` → `Community Plugins`
@@ -52,14 +52,12 @@ git clone https://github.com/YairSegel/ObsidianMinimap .obsidian/plugins/note-mi
 5. Drag the slider in the minimap to jump to different parts of the note.
 6. Click the `Toggle Minimap` button in the upper-right corner of the pane to choose whether to show minimap.
 
-## ⚙️ Settings (Coming Soon)
+## ⚙️ Settings 
 
-Planned features for the settings panel:
 - Adjustable minimap scale
-- Minimap side (L/R)
 - Enable minimap by default
-- Show slider (off, onhover, on)
-- Opacity
+- Opacity (separate for minimap and slider)
+- Top offset (for custom toolbars in the note)
 
 ## 📌 Limitations
 
