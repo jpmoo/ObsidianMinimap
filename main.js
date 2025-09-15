@@ -41,7 +41,6 @@ class MinimapSettingTab extends PluginSettingTab {
                     .onChange((value) => {
                         this.plugin.settings.scale = value;
                         this.plugin.saveSettings();
-                        this.plugin.updateAllMinimapScales();
                     });
             });
 
@@ -56,7 +55,6 @@ class MinimapSettingTab extends PluginSettingTab {
                     .onChange((value) => {
                         this.plugin.settings.minimapOpacity = value;
                         this.plugin.saveSettings();
-                        this.plugin.updateAllMinimapOpacities();
                     });
             });
 
@@ -71,7 +69,20 @@ class MinimapSettingTab extends PluginSettingTab {
                     .onChange((value) => {
                         this.plugin.settings.sliderOpacity = value;
                         this.plugin.saveSettings();
-                        this.plugin.updateAllMinimapOpacities();
+                    });
+            });
+
+        new Setting(containerEl)
+            .setName("Top Offset")
+            .setDesc("Offset the minimap from the top (pixels) - for special plugin toolbars")
+            .addSlider((slider) => {
+                slider
+                    .setLimits(0, 100, 1)
+                    .setValue(this.plugin.settings.topOffset)
+                    .setDynamicTooltip()
+                    .onChange((value) => {
+                        this.plugin.settings.topOffset = value;
+                        this.plugin.saveSettings();
                     });
             });
     }
@@ -202,6 +213,7 @@ class NoteMinimap extends Plugin {
                 enabledByDefault: true,
                 minimapOpacity: 0.3,
                 sliderOpacity: 0.3,
+                topOffset: 0,
             },
             await this.loadData()
         );
@@ -209,20 +221,10 @@ class NoteMinimap extends Plugin {
 
     async saveSettings() {
         await this.saveData(this.settings);
-    }
 
-    updateAllMinimapScales() {
+        // Update all existing notes
         for (const note of this.noteInstances.values()) {
-            note.setScale(this.settings.scale);
-        }
-    }
-
-    updateAllMinimapOpacities() {
-        for (const note of this.noteInstances.values()) {
-            note.setOpacities(
-                this.settings.minimapOpacity,
-                this.settings.sliderOpacity
-            );
+            note.updateSettings(this.settings);
         }
     }
 
@@ -259,7 +261,6 @@ class NoteMinimap extends Plugin {
         // Update or create the Note instance for this element
         if (this.noteInstances.has(element)) {
             const noteInstance = this.noteInstances.get(element);
-            noteInstance.setScale(this.settings.scale);
             noteInstance.updateIframe();
         } else {
             const noteInstance = new Note(element, this.settings);
@@ -311,32 +312,30 @@ class Note {
         this.onSliderMouseDown = this.onSliderMouseDown.bind(this);
 
         this.setupElements();
-        this.updateScaleCSS();
-        this.setScale(settings.scale);
-        this.setOpacities(settings.minimapOpacity, settings.sliderOpacity);
-        this.updateIframe();
-        this.updateSlider();
+        this.updateSettings(settings);
 
         // Register events - need to remove on destroy!
         this.scroller.addEventListener("scroll", this.updateSlider);
         this.slider.addEventListener("mousedown", this.onSliderMouseDown);
     }
 
-    setScale(scale) {
-        this.scale = scale;
-        this.updateScaleCSS();
+    updateSettings(settings) {
+        this.scale = settings.scale;
+        this.minimapOpacity = settings.minimapOpacity;
+        this.sliderOpacity = settings.sliderOpacity;
+        this.topOffset = settings.topOffset;
+
+        this.updateSettingsInCSS();
         this.onResize();
-    }
-
-    setOpacities(minimapOpacity, sliderOpacity) {
-        this.minimapOpacity = minimapOpacity;
-        if (this.slider) this.slider.style.opacity = sliderOpacity;
         this.updateIframe();
+        this.updateSlider();
     }
 
-    updateScaleCSS() {
+    updateSettingsInCSS() {
         if (this.iframe) this.iframe.style.setProperty("--scale", this.scale);
         if (this.slider) this.slider.style.setProperty("--scale", this.scale);
+        if (this.slider) this.slider.style.opacity = this.sliderOpacity;
+        if (this.iframe) this.iframe.style.top = `${this.topOffset}px`;
     }
 
     destroy() {
@@ -471,7 +470,7 @@ class Note {
     updateSlider() {
         if (!this.scroller) return;
         const scrollTop = this.scroller.scrollTop;
-        const boxTop = scrollTop * this.scale;
+        const boxTop = scrollTop * this.scale + (this.topOffset || 0);
         this.slider.style.top = `${boxTop}px`;
     }
 
@@ -490,7 +489,9 @@ class Note {
 
         // Remove other content (fix for trouble with Editing Toolbar Plugin)
         // noteContent.querySelectorAll(".markdown-reading-view > :not(.markdown-preview-view)").forEach((e) => (e.remove()));
-        noteContent.querySelectorAll(".markdown-source-view > :not(.cm-editor)").forEach((e) => (e.remove()));
+        noteContent
+            .querySelectorAll(".markdown-source-view > :not(.cm-editor)")
+            .forEach((e) => e.remove());
 
         return noteContent;
     }
@@ -511,7 +512,7 @@ class Note {
         if (!this.isDragging) return;
 
         const editorRect = this.element.getBoundingClientRect();
-        let offsetY = e.clientY - editorRect.top - this.dragOffsetY;
+        let offsetY = e.clientY - editorRect.top - this.dragOffsetY - this.topOffset;
 
         // Clamp to editor bounds
         const maxScroll =
