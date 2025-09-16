@@ -74,7 +74,9 @@ class MinimapSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName("Top Offset")
-            .setDesc("Offset the minimap from the top (pixels) - for special plugin toolbars")
+            .setDesc(
+                "Offset the minimap from the top (pixels) - for special plugin toolbars"
+            )
             .addSlider((slider) => {
                 slider
                     .setLimits(0, 100, 1)
@@ -116,7 +118,7 @@ class NoteMinimap extends Plugin {
             resize();
         });
 
-        // Handle mode change
+        // Handle mode change, notice that there is no way to unobserve only one element
         this.modeObserver = new MutationObserver((entries) => {
             const entry = entries[0]; // all entries will be about the same topic anyways
             const noteInstance = this.noteInstances.get(
@@ -171,7 +173,6 @@ class NoteMinimap extends Plugin {
                         note.destroy();
                         this.noteInstances.delete(el);
                         this.resizeObserver.unobserve(el);
-                        this.modeObserver.unobserve(note.sourceView);
                     }
                 }
             })
@@ -243,8 +244,12 @@ class NoteMinimap extends Plugin {
             element = this.activeNoteView.contentEl;
         }
 
-        // A new tab and not a note
-        if (element.querySelector(".empty-state")) return;
+        // Assert it's a markdown note by checking for the two needed children
+        if (
+            !element.querySelector(".markdown-source-view") ||
+            !element.querySelector(".markdown-preview-view")
+        )
+            return;
 
         // If disabled, remove the minimap if it exists
         if (element.classList.contains("minimap-disabled")) {
@@ -464,7 +469,7 @@ class Note {
 		</html>
 	`;
 
-        this.iframe.srcdoc = html;
+        if (this.iframe) this.iframe.srcdoc = html;
     }
 
     updateSlider() {
@@ -512,7 +517,8 @@ class Note {
         if (!this.isDragging) return;
 
         const editorRect = this.element.getBoundingClientRect();
-        let offsetY = e.clientY - editorRect.top - this.dragOffsetY - this.topOffset;
+        let offsetY =
+            e.clientY - editorRect.top - this.dragOffsetY - this.topOffset;
 
         // Clamp to editor bounds
         const maxScroll =
