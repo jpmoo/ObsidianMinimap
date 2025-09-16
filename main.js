@@ -330,10 +330,12 @@ class Note {
         this.sliderOpacity = settings.sliderOpacity;
         this.topOffset = settings.topOffset;
 
-        this.updateSettingsInCSS();
-        this.onResize();
-        this.updateIframe();
-        this.updateSlider();
+        if (this.iframe && this.slider) {
+            this.updateSettingsInCSS();
+            this.onResize();
+            this.updateIframe();
+            this.updateSlider();
+        }
     }
 
     updateSettingsInCSS() {
