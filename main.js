@@ -306,6 +306,52 @@ class NoteMinimap extends Plugin {
 
         viewActions.prepend(button);
     }
+
+    // Functions towards switching to rendering minimap with a helper leaf instead of the actual - to improve use experience
+    helperLeafIds = new Map(); // originalLeafId: helperLeafId
+    openHelperForLeaf(leaf) {
+        if (!leaf) return;
+        if (this.helperLeafIds.has(leaf.id)) return;
+
+        const file = leaf.view.file;
+        if (!file) return;
+        const rightLeaf = this.app.workspace.getRightLeaf(false);
+        rightLeaf.openFile(file);
+        rightLeaf.view.contentEl
+            .querySelectorAll(".markdown-preview-sizer, .cm-sizer")
+            .forEach((el) => {
+                el.style = "transform-origin: top right; scale: .1;";
+            });
+        this.helperLeafIds.set(leaf.id, rightLeaf.id);
+        console.log(
+            `Opened helper leaf ${rightLeaf.id} for original leaf ${leaf.id}`
+        );
+    }
+    detachRedundantHelperLeaves() {
+        this.helperLeafIds.forEach((helperLeafId, originalLeafId) => {
+            if (this.app.workspace.getLeafById(originalLeafId) === null) {
+                const helperLeaf = this.app.workspace.getLeafById(helperLeafId);
+                if (helperLeaf) {
+                    console.log(
+                        `Closing helper leaf ${helperLeafId} as original leaf ${originalLeafId} has closed`
+                    );
+                    helperLeaf.detach();
+                }
+                this.helperLeafIds.delete(originalLeafId);
+            }
+        });
+    }
+    detachAllHelperLeaves() {
+        this.helperLeafIds.forEach((helperLeafId) => {
+            const helperLeaf = this.app.workspace.getLeafById(helperLeafId);
+            if (helperLeaf) {
+                console.log(
+                    `Closing helper leaf ${helperLeafId} on plugin unload`
+                );
+                helperLeaf.detach();
+            }
+        });
+    }
 }
 
 class Note {
