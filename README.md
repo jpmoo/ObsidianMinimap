@@ -61,8 +61,6 @@ git clone https://github.com/YairSegel/ObsidianMinimap .obsidian/plugins/note-mi
 
 ## 📌 Limitations
 
-- Doesn't have settings yet
-- Doesn't support custom themes yet
 - Not optimized for extremely large notes yet
 - Uses workaround to render long notes because of Obsidian's lazy loading  
 
