@@ -31,6 +31,20 @@ class MinimapSettingTab extends PluginSettingTab {
             });
 
         new Setting(containerEl)
+            .setName("Better Rendering (Experimental)")
+            .setDesc(
+                "Use a hidden helper note to render the minimap, improving flickering and consistent loading. Already opened notes will not be affected by changing this"
+            )
+            .addToggle((toggle) => {
+                toggle
+                    .setValue(this.plugin.settings.betterRendering)
+                    .onChange((value) => {
+                        this.plugin.settings.betterRendering = value;
+                        this.plugin.saveSettings();
+                    });
+            });
+
+        new Setting(containerEl)
             .setName("Scale")
             .setDesc("Change the minimap scale (0.05 - 0.3)")
             .addSlider((slider) => {
@@ -141,6 +155,8 @@ class NoteMinimap extends Plugin {
 
                 // Toggle button
                 if (newActiveLeaf?.view?.getViewType() === "markdown") {
+                    if (this.settings.betterRendering)
+                        this.openHelperForLeaf(newActiveLeaf);
                     this.addToggleButtonToLeaf(newActiveLeaf);
                 }
             })
@@ -161,6 +177,7 @@ class NoteMinimap extends Plugin {
         // Manage closed notes
         this.registerEvent(
             this.app.workspace.on("layout-change", () => {
+                this.detachRedundantHelperLeaves();
                 // This event does not provide arguments
                 const openEls = new Set(
                     this.app.workspace
@@ -203,6 +220,7 @@ class NoteMinimap extends Plugin {
         document
             .querySelectorAll(".minimap-toggle-button")
             .forEach((button) => button.remove());
+        this.detachAllHelperLeaves();
 
         console.log("NoteMinimap Unloaded");
     }
@@ -210,8 +228,9 @@ class NoteMinimap extends Plugin {
     async loadSettings() {
         this.settings = Object.assign(
             {
-                scale: 0.1,
                 enabledByDefault: true,
+                betterRendering: false,
+                scale: 0.1,
                 minimapOpacity: 0.3,
                 sliderOpacity: 0.3,
                 topOffset: 0,
@@ -232,12 +251,19 @@ class NoteMinimap extends Plugin {
     injectMinimapIntoAllNotes() {
         const leaves = this.app.workspace.getLeavesOfType("markdown");
         for (const leaf of leaves) {
+            if (this.settings.betterRendering) this.openHelperForLeaf(leaf);
             this.addToggleButtonToLeaf(leaf);
-            this.updateElementMinimap(leaf.view.contentEl);
+            this.updateElementMinimap(
+                leaf.view.contentEl,
+                this.helperLeafIds.get(leaf.id)
+            );
         }
     }
 
-    updateElementMinimap(element) {
+    async updateElementMinimap(element, helperLeafId) {
+        await sleep(100); // wait for helper to open
+        const activeLeaf = this.app.workspace.activeLeaf;
+        helperLeafId = this.helperLeafIds.get(activeLeaf.id);
         // If no element is provided, use the active leaf
         if (!element) {
             if (!this.activeNoteView) return;
@@ -268,7 +294,7 @@ class NoteMinimap extends Plugin {
             const noteInstance = this.noteInstances.get(element);
             noteInstance.updateIframe();
         } else {
-            const noteInstance = new Note(element, this.settings);
+            const noteInstance = new Note(element, this.settings, helperLeafId);
             this.noteInstances.set(element, noteInstance);
             this.resizeObserver.observe(element);
             this.modeObserver.observe(noteInstance.sourceView, {
@@ -309,23 +335,29 @@ class NoteMinimap extends Plugin {
 
     // Functions towards switching to rendering minimap with a helper leaf instead of the actual - to improve use experience
     helperLeafIds = new Map(); // originalLeafId: helperLeafId
-    openHelperForLeaf(leaf) {
+    async openHelperForLeaf(leaf) {
         if (!leaf) return;
-        if (this.helperLeafIds.has(leaf.id)) return;
-
+        if (this.helperLeafIds.has(leaf.id)) return; // already has a helper
+        if ([...this.helperLeafIds.values()].includes(leaf.id)) return; // is a helper itself
         const file = leaf.view.file;
         if (!file) return;
+
+        // Create the helper leaf in the right sidebar, save its id and open the same file in it
         const rightLeaf = this.app.workspace.getRightLeaf(false);
-        rightLeaf.openFile(file);
+        this.helperLeafIds.set(leaf.id, rightLeaf.id);
+        await rightLeaf.openFile(file);
+
+        // Force the leaf's contentEl to fully load by clearing and restoring its data - I don't know why view.clear() is the only thing that works...
         rightLeaf.view.contentEl
             .querySelectorAll(".markdown-preview-sizer, .cm-sizer")
             .forEach((el) => {
                 el.style = "transform-origin: top right; scale: .1;";
             });
-        this.helperLeafIds.set(leaf.id, rightLeaf.id);
-        console.log(
-            `Opened helper leaf ${rightLeaf.id} for original leaf ${leaf.id}`
-        );
+        const data = await rightLeaf.view.getViewData();
+        await rightLeaf.view.clear();
+        await sleep(100);
+        await rightLeaf.view.setViewData(data);
+        // console.log(`Opened helper leaf ${rightLeaf.id} for original leaf ${leaf.id}`);
     }
     detachRedundantHelperLeaves() {
         this.helperLeafIds.forEach((helperLeafId, originalLeafId) => {
@@ -355,8 +387,11 @@ class NoteMinimap extends Plugin {
 }
 
 class Note {
-    constructor(element, settings) {
+    constructor(element, settings, helperLeafId) {
         this.element = element;
+        this.helperLeafId = helperLeafId;
+        this.helperElement =
+            app.workspace.getLeafById(helperLeafId)?.view?.contentEl;
         this.sourceView = element.querySelector(".markdown-source-view");
         this.modeChange();
         this.updateSlider = this.updateSlider.bind(this);
@@ -529,16 +564,23 @@ class Note {
 
     // Needed since obsidian doesn't load non-visible parts of the note (can't be changed).
     async getFullHTML() {
-        this.sizer.style = "transform-origin: top right; scale: .1;";
-        this.element.offsetWidth; // trigger reflow
-        await sleep(10);
+        let noteContent;
+        if (this.helperElement) {
+            // Better Rendering: use helper note if available
+            noteContent = this.helperElement.cloneNode(true);
+        } else {
+            // Fallback: use current note but try to force full rendering
+            this.sizer.style = "transform-origin: top right; scale: .1;";
+            this.element.offsetWidth; // trigger reflow
+            await sleep(10);
 
-        const noteContent = this.element.cloneNode(true);
+            noteContent = this.element.cloneNode(true);
+            this.sizer.style = "";
+        }
 
         noteContent
             .querySelectorAll(".markdown-preview-sizer, .cm-sizer")
             .forEach((e) => (e.style = ""));
-        this.sizer.style = "";
 
         // Remove other content (fix for trouble with Editing Toolbar Plugin)
         // noteContent.querySelectorAll(".markdown-reading-view > :not(.markdown-preview-view)").forEach((e) => (e.remove()));
