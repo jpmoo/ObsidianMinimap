@@ -174,20 +174,25 @@ class NoteMinimap extends Plugin {
             this.app.workspace.on("editor-change", this.debouncedUpdateMinimap)
         );
 
-        // Manage closed notes (and mode changes for better rendering)
+        // mode changes for better rendering
         const updateHelpers = throttle(() => {
             this.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
                 this.updateHelperForLeaf(leaf);
             });
             this.updateElementMinimap();
         }, 500);
+        // This event does not provide arguments
         this.registerEvent(
             this.app.workspace.on("layout-change", () => {
                 if (this.settings.betterRendering) {
                     this.detachRedundantHelperLeaves();
                     updateHelpers();
                 }
-                // This event does not provide arguments
+
+                // mode changes cause resizing since the height of the note contents changes
+                this.noteInstances.get(this.activeNoteView?.contentEl)?.onResize();
+
+                // closed notes
                 const openEls = new Set(
                     this.app.workspace
                         .getLeavesOfType("markdown")
