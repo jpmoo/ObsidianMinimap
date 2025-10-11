@@ -174,10 +174,19 @@ class NoteMinimap extends Plugin {
             this.app.workspace.on("editor-change", this.debouncedUpdateMinimap)
         );
 
-        // Manage closed notes
+        // Manage closed notes (and mode changes for better rendering)
+        const updateHelpers = throttle(() => {
+            this.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
+                this.updateHelperForLeaf(leaf);
+            });
+            this.updateElementMinimap();
+        }, 500);
         this.registerEvent(
             this.app.workspace.on("layout-change", () => {
-                this.detachRedundantHelperLeaves();
+                if (this.settings.betterRendering) {
+                    this.detachRedundantHelperLeaves();
+                    updateHelpers();
+                }
                 // This event does not provide arguments
                 const openEls = new Set(
                     this.app.workspace
@@ -339,24 +348,14 @@ class NoteMinimap extends Plugin {
         if (!leaf) return;
         if (this.helperLeafIds.has(leaf.id)) return; // already has a helper
         if ([...this.helperLeafIds.values()].includes(leaf.id)) return; // is a helper itself
+        // if (leaf.view?.getViewType() !== "markdown") return;
         const file = leaf.view.file;
         if (!file) return;
 
-        // Create the helper leaf in the right sidebar, save its id and open the same file in it
+        // Create the helper leaf in the right sidebar, save its id and open the same content in it
         const rightLeaf = this.app.workspace.getRightLeaf(false);
         this.helperLeafIds.set(leaf.id, rightLeaf.id);
-        await rightLeaf.openFile(file);
-
-        // Force the leaf's contentEl to fully load by clearing and restoring its data - I don't know why view.clear() is the only thing that works...
-        rightLeaf.view.contentEl
-            .querySelectorAll(".markdown-preview-sizer, .cm-sizer")
-            .forEach((el) => {
-                el.style = "transform-origin: top right; scale: .1;";
-            });
-        const data = await rightLeaf.view.getViewData();
-        await rightLeaf.view.clear();
-        await sleep(100);
-        await rightLeaf.view.setViewData(data);
+        this.updateHelperForLeaf(leaf);
         // console.log(`Opened helper leaf ${rightLeaf.id} for original leaf ${leaf.id}`);
     }
     detachRedundantHelperLeaves() {
@@ -364,9 +363,7 @@ class NoteMinimap extends Plugin {
             if (this.app.workspace.getLeafById(originalLeafId) === null) {
                 const helperLeaf = this.app.workspace.getLeafById(helperLeafId);
                 if (helperLeaf) {
-                    console.log(
-                        `Closing helper leaf ${helperLeafId} as original leaf ${originalLeafId} has closed`
-                    );
+                    // console.log(`Closing helper leaf ${helperLeafId} as original leaf ${originalLeafId} has closed`);
                     helperLeaf.detach();
                 }
                 this.helperLeafIds.delete(originalLeafId);
@@ -375,14 +372,37 @@ class NoteMinimap extends Plugin {
     }
     detachAllHelperLeaves() {
         this.helperLeafIds.forEach((helperLeafId) => {
-            const helperLeaf = this.app.workspace.getLeafById(helperLeafId);
-            if (helperLeaf) {
-                console.log(
-                    `Closing helper leaf ${helperLeafId} on plugin unload`
-                );
-                helperLeaf.detach();
-            }
+            this.app.workspace.getLeafById(helperLeafId)?.detach();
         });
+    }
+    async updateHelperForLeaf(leaf) {
+        const helperLeaf = this.app.workspace.getLeafById(
+            this.helperLeafIds.get(leaf?.id)
+        );
+        if (!helperLeaf) return;
+        // console.log("Updating helper for leaf", leaf.id);
+
+        const oldState = helperLeaf.view.getState();
+        const newState = leaf.view.getState();
+        await helperLeaf.setViewState({
+            type: "markdown",
+            state: newState,
+        });
+        if (oldState.file !== newState.file)
+            await this.initialForceloadContentInMarkdownView(helperLeaf.view);
+    }
+    async initialForceloadContentInMarkdownView(view) {
+        // Force the contentEl to fully load by clearing and restoring its data - I don't know why view.clear() is the only thing that works...
+        if (view?.getViewType() !== "markdown") return;
+        view.contentEl
+            .querySelectorAll(".markdown-preview-sizer, .cm-sizer")
+            .forEach((el) => {
+                el.style = "transform-origin: top right; scale: .1;";
+            });
+        const data = await view.getViewData();
+        await view.clear();
+        await sleep(100);
+        await view.setViewData(data);
     }
 }
 
