@@ -33,7 +33,7 @@ class MinimapSettingTab extends PluginSettingTab {
             });
 
         new Setting(containerEl)
-            .setName("Better Rendering (Experimental)")
+            .setName("Better Rendering (in development)")
             .setDesc(
                 "Use a hidden helper note to render the minimap, improving flickering and consistent loading. Changing this will trigger a plugin restart"
             )
@@ -257,7 +257,7 @@ class NoteMinimap extends Plugin {
         this.settings = Object.assign(
             {
                 enabledByDefault: true,
-                betterRendering: false,
+                betterRendering: true,
                 scale: 0.1,
                 minimapOpacity: 0.3,
                 sliderOpacity: 0.3,
@@ -450,12 +450,6 @@ class NoteMinimap extends Plugin {
 
 class Minimap {
     constructor(plugin, element, settings, helperLeafId) {
-        this.scroller = null;
-        this.iframe = null;
-        this.slider = null;
-        this.isDragging = false;
-        this.dragOffsetY = 0;
-
         this.plugin = plugin;
         this.element = element;
         this.helperLeafId = helperLeafId;
