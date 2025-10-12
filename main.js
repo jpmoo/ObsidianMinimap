@@ -43,12 +43,15 @@ class MinimapSettingTab extends PluginSettingTab {
                     .onChange(async (value) => {
                         this.plugin.settings.betterRendering = value;
                         await this.plugin.saveSettings();
-                        
+
                         // Restart plugin to apply changes
                         await this.app.plugins.disablePlugin("minimap");
                         await this.app.plugins.enablePlugin("minimap");
                         this.app.setting.openTabById("minimap");
-                        new Notice("Note Minimap: Restarted plugin for Better Rendering change.", 3000);
+                        new Notice(
+                            "Note Minimap: Restarted plugin for Better Rendering change.",
+                            3000
+                        );
                     });
             });
 
@@ -507,6 +510,13 @@ class Minimap {
         this.sliderOpacity = settings.sliderOpacity;
         this.topOffset = settings.topOffset;
 
+        this.backgroundColor = toRGBAAlpha(
+            document
+                .querySelector(".view-content")
+                .getCssPropertyValue("background-color"),
+            this.minimapOpacity
+        );
+
         if (this.iframe && this.slider) {
             this.updateSettingsInCSS();
             this.onResize();
@@ -628,18 +638,11 @@ class Minimap {
         // Remove scrollbar inside minimap
         cssVars += "::-webkit-scrollbar {display: none;}";
 
-        // Dynamically override --color-base-00 with alpha
-        const base00Alpha = toRGBAAlpha(
-            rootStyles.getPropertyValue("--color-base-00").trim(),
-            this.minimapOpacity
-        );
-        const overrideVars = `--color-base-00: ${base00Alpha};`;
-
         const html = `
 		<!DOCTYPE html>
 		<html>
 		<head>${stylesHTML}<style>${cssVars}</style></head>
-		<body style="${overrideVars}" class="${themeClass} ${
+		<body style="background-color:${this.backgroundColor}" class="${themeClass} ${
             this.isReadModeActive() ? "" : "markdown-preview-view"
         } show-inline-title">${noteContent.innerHTML}</body>
 		</html>
