@@ -108,7 +108,7 @@ class MinimapSettingTab extends PluginSettingTab {
 class NoteMinimap extends Plugin {
     activeNoteView = null;
     updateNeeded = false;
-    noteInstances = new Map(); // element: noteInstance
+    minimapInstances = new Map(); // element: noteInstance
 
     async onload() {
         console.log("NoteMinimap Loaded");
@@ -117,7 +117,7 @@ class NoteMinimap extends Plugin {
         const resized = new Set(); // entry.target = element
         const resize = throttle(() => {
             for (const el of resized) {
-                for (const [element, note] of this.noteInstances.entries()) {
+                for (const [element, note] of this.minimapInstances.entries()) {
                     if (element === el) {
                         note.onResize();
                         break; // Exit inner loop once a match is found
@@ -136,7 +136,7 @@ class NoteMinimap extends Plugin {
         // Handle mode change, notice that there is no way to unobserve only one element
         this.modeObserver = new MutationObserver((entries) => {
             const entry = entries[0]; // all entries will be about the same topic anyways
-            const noteInstance = this.noteInstances.get(
+            const noteInstance = this.minimapInstances.get(
                 entry.target.parentElement
             );
             if (entry.attributeName === "style") noteInstance?.modeChange();
@@ -191,7 +191,7 @@ class NoteMinimap extends Plugin {
                 }
 
                 // mode changes cause resizing since the height of the note contents changes
-                this.noteInstances
+                this.minimapInstances
                     .get(this.activeNoteView?.contentEl)
                     ?.onResize();
 
@@ -201,11 +201,11 @@ class NoteMinimap extends Plugin {
                         .getLeavesOfType("markdown")
                         .map((l) => l.view.contentEl)
                 );
-                for (const [el, note] of this.noteInstances.entries()) {
+                for (const [el, note] of this.minimapInstances.entries()) {
                     if (!openEls.has(el)) {
                         // console.log("note closed", el);
                         note.destroy();
-                        this.noteInstances.delete(el);
+                        this.minimapInstances.delete(el);
                         this.resizeObserver.unobserve(el);
                     }
                 }
@@ -230,7 +230,7 @@ class NoteMinimap extends Plugin {
         }
 
         // Destroy all Note instances and disconnect Observers
-        this.noteInstances.forEach((noteInstance) => noteInstance.destroy());
+        this.minimapInstances.forEach((noteInstance) => noteInstance.destroy());
         this.resizeObserver.disconnect();
         this.modeObserver.disconnect();
 
@@ -260,7 +260,7 @@ class NoteMinimap extends Plugin {
         await this.saveData(this.settings);
 
         // Update all existing notes
-        for (const note of this.noteInstances.values()) {
+        for (const note of this.minimapInstances.values()) {
             note.updateSettings(this.settings);
         }
     }
@@ -296,10 +296,10 @@ class NoteMinimap extends Plugin {
 
         // If disabled, remove the minimap if it exists
         if (element.classList.contains("minimap-disabled")) {
-            const existing = this.noteInstances.get(element);
+            const existing = this.minimapInstances.get(element);
             if (existing) {
                 existing.destroy();
-                this.noteInstances.delete(element);
+                this.minimapInstances.delete(element);
                 this.resizeObserver.unobserve(element);
                 // MutationObserver.unobserve() does not exist...
             }
@@ -307,19 +307,19 @@ class NoteMinimap extends Plugin {
         }
 
         // Update or create the Note instance for this element
-        if (this.noteInstances.has(element)) {
-            const noteInstance = this.noteInstances.get(element);
+        if (this.minimapInstances.has(element)) {
+            const noteInstance = this.minimapInstances.get(element);
             noteInstance.updateIframe();
         } else {
-            const noteInstance = new Note(
+            const minimapInstance = new Minimap(
                 this,
                 element,
                 this.settings,
                 helperLeafId
             );
-            this.noteInstances.set(element, noteInstance);
+            this.minimapInstances.set(element, minimapInstance);
             this.resizeObserver.observe(element);
-            this.modeObserver.observe(noteInstance.sourceView, {
+            this.modeObserver.observe(minimapInstance.sourceView, {
                 attributes: true,
             });
             // console.log("Created new Note instance for leaf:", element);
@@ -419,8 +419,14 @@ class NoteMinimap extends Plugin {
     }
 }
 
-class Note {
+class Minimap {
     constructor(plugin, element, settings, helperLeafId) {
+        this.scroller = null;
+        this.iframe = null;
+        this.slider = null;
+        this.isDragging = false;
+        this.dragOffsetY = 0;
+
         this.plugin = plugin;
         this.element = element;
         this.helperLeafId = helperLeafId;
@@ -428,15 +434,45 @@ class Note {
             plugin.app.workspace.getLeafById(helperLeafId)?.view?.contentEl;
         this.sourceView = element.querySelector(".markdown-source-view");
         this.modeChange();
-        this.updateSlider = this.updateSlider.bind(this);
+        this.updateSliderScroll = this.updateSliderScroll.bind(this);
         this.onSliderMouseDown = this.onSliderMouseDown.bind(this);
 
         this.setupElements();
         this.updateSettings(settings);
 
         // Register events - need to remove on destroy!
-        this.scroller.addEventListener("scroll", this.updateSlider);
+        this.scroller.addEventListener("scroll", this.updateSliderScroll);
         this.slider.addEventListener("mousedown", this.onSliderMouseDown);
+    }
+    _constructor(viewContent, scroller, settings) {
+        this.viewContent = viewContent;
+        this.updateSettings(settings);
+        this.updateSettingsInCSS();
+
+        // Create minimap elements
+        this.container = document.createElement("div");
+        this.container.className = "minimap-container";
+
+        this.iframe = document.createElement("iframe");
+        this.iframe.className = "minimap-frame";
+        this.container.appendChild(this.iframe);
+
+        this.slider = document.createElement("div");
+        this.slider.className = "minimap-slider";
+        this.container.appendChild(this.slider);
+
+        // Append minimap to note
+        this.viewContent
+            .querySelectorAll(
+                ".minimap-container, .minimap-frame, .minimap-slider"
+            )
+            .forEach((e) => e.remove());
+        this.viewContent.prepend(this.container);
+
+        //
+        this.updateSliderScroll = this.updateSliderScroll.bind(this);
+        this.onSliderMouseDown = this.onSliderMouseDown.bind(this);
+        this.changeScroller(scroller);
     }
 
     updateSettings(settings) {
@@ -449,7 +485,7 @@ class Note {
             this.updateSettingsInCSS();
             this.onResize();
             this.updateIframe();
-            this.updateSlider();
+            this.updateSliderScroll();
         }
     }
 
@@ -461,7 +497,7 @@ class Note {
     }
 
     destroy() {
-        this.scroller.removeEventListener("scroll", this.updateSlider);
+        this.scroller.removeEventListener("scroll", this.updateSliderScroll);
         this.slider.removeEventListener("mousedown", this.onSliderMouseDown);
         document.removeEventListener("mousemove", this.onSliderMouseMove);
         document.removeEventListener("mouseup", this.onSliderMouseUp);
@@ -479,43 +515,40 @@ class Note {
     }
 
     modeChange() {
-        // Check mode
-        const isReading = this.isReadModeActive();
-
-        // Un-bind scroll
-        if (this.scroller) {
-            this.scroller.removeEventListener("scroll", this.updateSlider);
-            this.scroller = null;
-        }
-
-        // Select the correct scroller and sizer elements for this mode
-        this.scroller = this.element.querySelector(
-            isReading ? ".markdown-preview-view" : ".cm-scroller"
+        this.changeScroller(
+            this.element.querySelector(
+                this.isReadModeActive()
+                    ? ".markdown-preview-view"
+                    : ".cm-scroller"
+            )
         );
-        this.sizer = this.element.querySelector(
-            isReading ? ".markdown-preview-sizer" : ".cm-sizer"
-        );
-
-        // Re-bind scroll
+    }
+    changeScroller(newScroller) {
         if (this.scroller) {
-            this.scroller.addEventListener("scroll", this.updateSlider);
+            this.scroller.removeEventListener(
+                "scroll",
+                this.updateSliderScroll
+            );
         }
-
-        // Recompute iframe and slider layout
-        this.onResize();
+        this.scroller = newScroller;
+        if (this.scroller) {
+            this.scroller.addEventListener("scroll", this.updateSliderScroll);
+            this.onResize();
+        }
     }
 
     async onResize() {
         await sleep(300);
 
-        // updating slider height
-        const visibleHeight = this.scroller.getBoundingClientRect().height;
+        this.resize(
+            this.scroller.firstChild.getBoundingClientRect().height,
+            this.scroller.getBoundingClientRect().height
+        );
+    }
+    resize(fullHeight, visibleHeight) {
+        this.iframe.style.height = `${fullHeight}px`;
         this.slider.style.height = `${visibleHeight * this.scale}px`;
-        this.updateSlider();
-
-        // updating iframe height
-        this.iframe.style.height =
-            this.sizer.getBoundingClientRect().height + "px";
+        this.updateSliderScroll();
     }
 
     setupElements() {
@@ -538,8 +571,8 @@ class Note {
         container.appendChild(this.slider);
     }
 
-    async updateIframe() {
-        const noteContent = await this.getFullHTML();
+    async updateIframe(noteContent) {
+        if (!noteContent) noteContent = await this.getFullHTML();
         noteContent
             .querySelectorAll(".minimap-frame, .minimap-slider")
             .forEach((el) => el.remove());
@@ -589,7 +622,7 @@ class Note {
         if (this.iframe) this.iframe.srcdoc = html;
     }
 
-    updateSlider() {
+    updateSliderScroll() {
         if (!this.scroller) return;
         const scrollTop = this.scroller.scrollTop;
         const boxTop = scrollTop * this.scale + (this.topOffset || 0);
@@ -598,58 +631,11 @@ class Note {
 
     // Needed since obsidian doesn't load non-visible parts of the note (can't be changed).
     async getFullHTML() {
-        let noteContent;
         if (this.isReadModeActive()) {
             // We can just use MarkdownRenderer.render() directly to load all content
-            const structure = this.element.cloneNode(true);
-            structure
-                .querySelectorAll(
-                    ".view-content > :not(.markdown-reading-view)"
-                )
-                .forEach((e) => e.remove());
-            const destination = structure.querySelector(
-                ".markdown-preview-sizer"
-            );
-            const titleElement = destination
-                .querySelector(".mod-header")
-                ?.cloneNode(true);
-            destination.innerHTML = ""; // clear existing content
-            await MarkdownRenderer.render(
-                this.plugin.app,
-                await this.plugin.app.workspace
-                    .getActiveFile()
-                    .vault.read(this.plugin.app.workspace.getActiveFile()),
-                destination,
-                this.plugin.app.workspace.getActiveFile().path,
-                this.plugin
-            );
-            if (titleElement)
-                destination.insertBefore(titleElement, destination.firstChild);
-            return structure;
+            return await renderReadMode(this.plugin, this.element);
         }
-        if (this.helperElement) {
-            // Better Rendering: use helper note if available
-            noteContent = this.helperElement.cloneNode(true);
-        } else {
-            // Fallback: use current note but try to force full rendering
-            this.sizer.style = "transform-origin: top right; scale: .1;";
-            this.element.offsetWidth; // trigger reflow
-            await sleep(10);
-
-            noteContent = this.element.cloneNode(true);
-            this.sizer.style = "";
-        }
-
-        noteContent
-            .querySelectorAll(".markdown-preview-sizer, .cm-sizer")
-            .forEach((e) => (e.style = ""));
-
-        // Remove other content (fix for trouble with Editing Toolbar Plugin)
-        noteContent
-            .querySelectorAll(".markdown-source-view > :not(.cm-editor)")
-            .forEach((e) => e.remove());
-
-        return noteContent;
+        return await renderEditMode(this.helperElement, this.scroller);
     }
 
     onSliderMouseDown(e) {
@@ -681,7 +667,7 @@ class Note {
         const scrollY = offsetY / this.scale;
         this.scroller.scrollTop = scrollY;
 
-        this.updateSlider(); // keep slider visually synced
+        this.updateSliderScroll(); // keep slider visually synced
     };
 
     onSliderMouseUp = () => {
@@ -752,4 +738,54 @@ function toRGBAAlpha(color, alpha) {
     }
     // fallback
     return color;
+}
+
+async function renderReadMode(plugin, structureNode) {
+    const structure = structureNode.cloneNode(true);
+    structure
+        .querySelectorAll(".view-content > :not(.markdown-reading-view)")
+        .forEach((e) => e.remove());
+    const destination = structure.querySelector(".markdown-preview-sizer");
+    const titleElement = destination
+        .querySelector(".mod-header")
+        ?.cloneNode(true);
+    destination.innerHTML = ""; // clear existing content
+    await MarkdownRenderer.render(
+        plugin.app,
+        await plugin.app.workspace
+            .getActiveFile()
+            .vault.read(plugin.app.workspace.getActiveFile()),
+        destination,
+        plugin.app.workspace.getActiveFile().path,
+        plugin
+    );
+    if (titleElement)
+        destination.insertBefore(titleElement, destination.firstChild);
+    return structure;
+}
+async function renderEditMode(helperElement, scroller) {
+    let noteContent;
+    if (helperElement) {
+        // Better Rendering: use helper note if available
+        noteContent = helperElement.cloneNode(true);
+    } else {
+        const sizer = scroller.firstChild;
+        const element = scroller.parentElement.parentElement.parentElement;
+        // Fallback: use current note but try to force full rendering
+        sizer.style = "transform-origin: top right; scale: .1;";
+        element.offsetWidth; // trigger reflow
+        await sleep(10);
+
+        noteContent = element.cloneNode(true);
+        sizer.style = "";
+    }
+
+    noteContent.querySelectorAll(".cm-sizer").forEach((e) => (e.style = ""));
+
+    // Remove other content (fix for trouble with Editing Toolbar Plugin)
+    noteContent
+        .querySelectorAll(".markdown-source-view > :not(.cm-editor)")
+        .forEach((e) => e.remove());
+
+    return noteContent;
 }
