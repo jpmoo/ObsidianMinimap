@@ -5,6 +5,7 @@ const {
     debounce,
     Setting,
     PluginSettingTab,
+    MarkdownRenderer,
 } = require("obsidian");
 
 class MinimapSettingTab extends PluginSettingTab {
@@ -190,7 +191,9 @@ class NoteMinimap extends Plugin {
                 }
 
                 // mode changes cause resizing since the height of the note contents changes
-                this.noteInstances.get(this.activeNoteView?.contentEl)?.onResize();
+                this.noteInstances
+                    .get(this.activeNoteView?.contentEl)
+                    ?.onResize();
 
                 // closed notes
                 const openEls = new Set(
@@ -308,7 +311,12 @@ class NoteMinimap extends Plugin {
             const noteInstance = this.noteInstances.get(element);
             noteInstance.updateIframe();
         } else {
-            const noteInstance = new Note(element, this.settings, helperLeafId);
+            const noteInstance = new Note(
+                this,
+                element,
+                this.settings,
+                helperLeafId
+            );
             this.noteInstances.set(element, noteInstance);
             this.resizeObserver.observe(element);
             this.modeObserver.observe(noteInstance.sourceView, {
@@ -412,11 +420,12 @@ class NoteMinimap extends Plugin {
 }
 
 class Note {
-    constructor(element, settings, helperLeafId) {
+    constructor(plugin, element, settings, helperLeafId) {
+        this.plugin = plugin;
         this.element = element;
         this.helperLeafId = helperLeafId;
         this.helperElement =
-            app.workspace.getLeafById(helperLeafId)?.view?.contentEl;
+            plugin.app.workspace.getLeafById(helperLeafId)?.view?.contentEl;
         this.sourceView = element.querySelector(".markdown-source-view");
         this.modeChange();
         this.updateSlider = this.updateSlider.bind(this);
@@ -590,6 +599,34 @@ class Note {
     // Needed since obsidian doesn't load non-visible parts of the note (can't be changed).
     async getFullHTML() {
         let noteContent;
+        if (this.isReadModeActive()) {
+            // We can just use MarkdownRenderer.render() directly to load all content
+            const structure = this.element.cloneNode(true);
+            structure
+                .querySelectorAll(
+                    ".view-content > :not(.markdown-reading-view)"
+                )
+                .forEach((e) => e.remove());
+            const destination = structure.querySelector(
+                ".markdown-preview-sizer"
+            );
+            const titleElement = destination
+                .querySelector(".mod-header")
+                ?.cloneNode(true);
+            destination.innerHTML = ""; // clear existing content
+            await MarkdownRenderer.render(
+                this.plugin.app,
+                await this.plugin.app.workspace
+                    .getActiveFile()
+                    .vault.read(this.plugin.app.workspace.getActiveFile()),
+                destination,
+                this.plugin.app.workspace.getActiveFile().path,
+                this.plugin
+            );
+            if (titleElement)
+                destination.insertBefore(titleElement, destination.firstChild);
+            return structure;
+        }
         if (this.helperElement) {
             // Better Rendering: use helper note if available
             noteContent = this.helperElement.cloneNode(true);
@@ -608,7 +645,6 @@ class Note {
             .forEach((e) => (e.style = ""));
 
         // Remove other content (fix for trouble with Editing Toolbar Plugin)
-        // noteContent.querySelectorAll(".markdown-reading-view > :not(.markdown-preview-view)").forEach((e) => (e.remove()));
         noteContent
             .querySelectorAll(".markdown-source-view > :not(.cm-editor)")
             .forEach((e) => e.remove());
