@@ -35,14 +35,20 @@ class MinimapSettingTab extends PluginSettingTab {
         new Setting(containerEl)
             .setName("Better Rendering (Experimental)")
             .setDesc(
-                "Use a hidden helper note to render the minimap, improving flickering and consistent loading. Already opened notes will not be affected by changing this"
+                "Use a hidden helper note to render the minimap, improving flickering and consistent loading. Changing this will trigger a plugin restart"
             )
             .addToggle((toggle) => {
                 toggle
                     .setValue(this.plugin.settings.betterRendering)
-                    .onChange((value) => {
+                    .onChange(async (value) => {
                         this.plugin.settings.betterRendering = value;
-                        this.plugin.saveSettings();
+                        await this.plugin.saveSettings();
+                        
+                        // Restart plugin to apply changes
+                        await this.app.plugins.disablePlugin("minimap");
+                        await this.app.plugins.enablePlugin("minimap");
+                        this.app.setting.openTabById("minimap");
+                        new Notice("Note Minimap: Restarted plugin for Better Rendering change.", 3000);
                     });
             });
 
