@@ -6,6 +6,7 @@ const {
     Setting,
     PluginSettingTab,
     MarkdownRenderer,
+    Notice,
 } = require("obsidian");
 
 class MinimapSettingTab extends PluginSettingTab {
@@ -146,6 +147,7 @@ class NoteMinimap extends Plugin {
         // Manage active leaf
         this.registerEvent(
             this.app.workspace.on("active-leaf-change", (newActiveLeaf) => {
+                this.checkAndDealWithUserOpeningHelperLeaves(newActiveLeaf);
                 this.updateElementMinimap(); // old leaf
                 this.activeNoteView = newActiveLeaf.view;
                 // console.log(
@@ -186,7 +188,7 @@ class NoteMinimap extends Plugin {
         this.registerEvent(
             this.app.workspace.on("layout-change", () => {
                 if (this.settings.betterRendering) {
-                    this.detachRedundantHelperLeaves();
+                    this.detachRedundantHelperLeavesAndRestoreMissing();
                     updateHelpers();
                 }
 
@@ -371,9 +373,22 @@ class NoteMinimap extends Plugin {
         this.updateHelperForLeaf(leaf);
         // console.log(`Opened helper leaf ${rightLeaf.id} for original leaf ${leaf.id}`);
     }
-    detachRedundantHelperLeaves() {
+    detachRedundantHelperLeavesAndRestoreMissing() {
         this.helperLeafIds.forEach((helperLeafId, originalLeafId) => {
-            if (this.app.workspace.getLeafById(originalLeafId) === null) {
+            if (this.app.workspace.getLeafById(originalLeafId)) {
+                // original leaf exists - assert helper leaf exists
+                if (!this.app.workspace.getLeafById(helperLeafId)) {
+                    this.helperLeafIds.delete(originalLeafId);
+                    // console.log(`Restoring missing helper leaf ${helperLeafId} for original leaf ${originalLeafId}`);
+                    const originalLeaf =
+                        this.app.workspace.getLeafById(originalLeafId);
+                    this.openHelperForLeaf(originalLeaf);
+                    new Notice(
+                        "Note Minimap: This is a helper note used for Better Rendering - avoid touching it!",
+                        4000
+                    );
+                }
+            } else {
                 const helperLeaf = this.app.workspace.getLeafById(helperLeafId);
                 if (helperLeaf) {
                     // console.log(`Closing helper leaf ${helperLeafId} as original leaf ${originalLeafId} has closed`);
@@ -382,6 +397,11 @@ class NoteMinimap extends Plugin {
                 this.helperLeafIds.delete(originalLeafId);
             }
         });
+    }
+    checkAndDealWithUserOpeningHelperLeaves(newActiveLeaf) {
+        // No need to scold the user here since detaching the leaf will trigger it
+        if ([...this.helperLeafIds.values()].includes(newActiveLeaf.id))
+            newActiveLeaf.detach();
     }
     detachAllHelperLeaves() {
         this.helperLeafIds.forEach((helperLeafId) => {
