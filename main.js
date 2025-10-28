@@ -310,7 +310,7 @@ class NoteMinimap extends Plugin {
         // Ensure helper leaf is synced before rendering minimap
         if (this.settings.betterRendering && helperLeafId) {
             await this.updateHelperForLeaf(elementLeaf);
-            await sleep(150); // Give helper time to load
+            await sleep(500); // Give helper time to fully load and render
         }
         
         // Check if this leaf already has a minimap instance
@@ -396,6 +396,19 @@ class NoteMinimap extends Plugin {
             this.modeObserver.observe(minimapInstance.sourceView, {
                 attributes: true,
             });
+            
+            // Wait for helper to sync before first render
+            if (helperLeafId && this.settings.betterRendering) {
+                await sleep(300); // Give helper time to load
+                // Refresh helperElement after delay
+                const helperLeaf = this.app.workspace.getLeafById(helperLeafId);
+                if (helperLeaf) {
+                    minimapInstance.helperElement = helperLeaf.view.contentEl;
+                }
+            }
+            
+            // Force initial render
+            await minimapInstance.updateIframe();
             // console.log("Created new Note instance for leaf:", element);
         }
     }
@@ -885,7 +898,27 @@ async function renderEditMode(helperElement, scroller) {
     let noteContent;
     if (helperElement) {
         // Better Rendering: use helper note if available
+        // Clone the helper element
         noteContent = helperElement.cloneNode(true);
+        
+        // Remove empty state and other extraneous content
+        noteContent.querySelectorAll('[data-type="empty"]').forEach((e) => e.remove());
+        
+        // Focus on getting the actual editor content
+        const markdownSourceView = noteContent.querySelector(".markdown-source-view");
+        if (markdownSourceView && markdownSourceView.querySelector(".cm-editor")) {
+            // We have real content
+        } else {
+            // Fallback: helper didn't render properly, try scroller
+            console.warn("Helper element has no content, falling back to scroller");
+            const sizer = scroller.firstChild;
+            const element = scroller.parentElement.parentElement.parentElement;
+            sizer.style = "transform-origin: top right; scale: .1;";
+            element.offsetWidth; // trigger reflow
+            await sleep(10);
+            noteContent = element.cloneNode(true);
+            sizer.style = "";
+        }
     } else {
         const sizer = scroller.firstChild;
         const element = scroller.parentElement.parentElement.parentElement;
