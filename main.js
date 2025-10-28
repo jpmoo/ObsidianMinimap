@@ -299,8 +299,32 @@ class NoteMinimap extends Plugin {
         // Get the helper leaf ID for the element we're updating
         // Find which leaf this element belongs to
         const elementLeaf = this.app.workspace.getLeavesOfType("markdown").find(leaf => leaf.view.contentEl === element);
-        if (elementLeaf) {
-            helperLeafId = this.helperLeafIds.get(elementLeaf.id);
+        if (!elementLeaf) return; // Can't find the leaf, can't proceed
+        
+        helperLeafId = this.helperLeafIds.get(elementLeaf.id);
+        
+        // Get the file associated with this leaf to ensure uniqueness
+        const leafFile = elementLeaf.view.file;
+        const leafId = elementLeaf.id;
+        
+        // Ensure helper leaf is synced before rendering minimap
+        if (this.settings.betterRendering && helperLeafId) {
+            await this.updateHelperForLeaf(elementLeaf);
+            await sleep(150); // Give helper time to load
+        }
+        
+        // Check if this leaf already has a minimap instance
+        const existingKey = [...this.minimapInstances.keys()].find(key => {
+            const instance = this.minimapInstances.get(key);
+            return instance && instance.leafId === leafId;
+        });
+        
+        // If we found an existing instance for this leaf, destroy it to ensure fresh content
+        if (existingKey && existingKey !== element) {
+            const oldInstance = this.minimapInstances.get(existingKey);
+            oldInstance.destroy();
+            this.minimapInstances.delete(existingKey);
+            this.resizeObserver.unobserve(existingKey);
         }
 
         // Assert it's a markdown note by checking for the two needed children
@@ -322,19 +346,50 @@ class NoteMinimap extends Plugin {
             return;
         }
 
+        // Check if this element already has a minimap
+        // If it does, and the file/leaf has changed, destroy the old one
+        let existingInstance = this.minimapInstances.get(element);
+        if (existingInstance) {
+            const existingLeafId = existingInstance.leafId;
+            // If the leaf changed, destroy the old instance
+            if (existingLeafId !== leafId) {
+                existingInstance.destroy();
+                this.minimapInstances.delete(element);
+                this.resizeObserver.unobserve(element);
+                existingInstance = null; // Force creation of new instance
+            }
+        }
+        
         // Update or create the Note instance for this element
-        if (this.minimapInstances.has(element)) {
-            const noteInstance = this.minimapInstances.get(element);
+        if (existingInstance) {
+            const noteInstance = existingInstance;
             // Update helperLeafId in case it changed when switching notes
             noteInstance.helperLeafId = helperLeafId;
-            noteInstance.helperElement = helperLeafId ? this.app.workspace.getLeafById(helperLeafId)?.view?.contentEl : undefined;
-            noteInstance.updateIframe();
+            
+            // Get fresh helperElement reference
+            if (helperLeafId) {
+                const helperLeaf = this.app.workspace.getLeafById(helperLeafId);
+                if (helperLeaf) {
+                    noteInstance.helperElement = helperLeaf.view.contentEl;
+                } else {
+                    noteInstance.helperElement = undefined;
+                }
+            } else {
+                noteInstance.helperElement = undefined;
+            }
+            
+            // Also update the element reference in case it changed
+            noteInstance.element = element;
+            
+            // Force a full refresh of the iframe content
+            await noteInstance.updateIframe();
         } else {
             const minimapInstance = new Minimap(
                 this,
                 element,
                 this.settings,
-                helperLeafId
+                helperLeafId,
+                leafId
             );
             this.minimapInstances.set(element, minimapInstance);
             this.resizeObserver.observe(element);
@@ -457,9 +512,10 @@ class NoteMinimap extends Plugin {
 }
 
 class Minimap {
-    constructor(plugin, element, settings, helperLeafId) {
+    constructor(plugin, element, settings, helperLeafId, leafId) {
         this.plugin = plugin;
         this.element = element;
+        this.leafId = leafId; // Store the leaf ID for tracking
         this.helperLeafId = helperLeafId;
         this.helperElement =
             plugin.app.workspace.getLeafById(helperLeafId)?.view?.contentEl;
@@ -716,6 +772,10 @@ class Minimap {
 }
 
 // editor-mode-change & close-leaf are not working!
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 module.exports = {
     default: NoteMinimap,
