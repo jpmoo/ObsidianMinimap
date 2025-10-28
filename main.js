@@ -45,9 +45,9 @@ class MinimapSettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
 
                         // Restart plugin to apply changes
-                        await this.app.plugins.disablePlugin("minimap");
-                        await this.app.plugins.enablePlugin("minimap");
-                        this.app.setting.openTabById("minimap");
+                        await this.app.plugins.disablePlugin("minimap-fixed");
+                        await this.app.plugins.enablePlugin("minimap-fixed");
+                        this.app.setting.openTabById("minimap-fixed");
                         new Notice(
                             "Note Minimap: Restarted plugin for Better Rendering change.",
                             3000
@@ -290,12 +290,17 @@ class NoteMinimap extends Plugin {
 
     async updateElementMinimap(element, helperLeafId) {
         await sleep(100); // wait for helper to open
-        const activeLeaf = this.app.workspace.activeLeaf;
-        helperLeafId = this.helperLeafIds.get(activeLeaf.id);
         // If no element is provided, use the active leaf
         if (!element) {
             if (!this.activeNoteView) return;
             element = this.activeNoteView.contentEl;
+        }
+        
+        // Get the helper leaf ID for the element we're updating
+        // Find which leaf this element belongs to
+        const elementLeaf = this.app.workspace.getLeavesOfType("markdown").find(leaf => leaf.view.contentEl === element);
+        if (elementLeaf) {
+            helperLeafId = this.helperLeafIds.get(elementLeaf.id);
         }
 
         // Assert it's a markdown note by checking for the two needed children
@@ -320,6 +325,9 @@ class NoteMinimap extends Plugin {
         // Update or create the Note instance for this element
         if (this.minimapInstances.has(element)) {
             const noteInstance = this.minimapInstances.get(element);
+            // Update helperLeafId in case it changed when switching notes
+            noteInstance.helperLeafId = helperLeafId;
+            noteInstance.helperElement = helperLeafId ? this.app.workspace.getLeafById(helperLeafId)?.view?.contentEl : undefined;
             noteInstance.updateIframe();
         } else {
             const minimapInstance = new Minimap(
@@ -658,6 +666,12 @@ class Minimap {
             // We can just use MarkdownRenderer.render() directly to load all content
             return await renderReadMode(this.plugin, this.element);
         }
+        
+        // Update helperElement reference in case it changed
+        if (this.helperLeafId) {
+            this.helperElement = this.plugin.app.workspace.getLeafById(this.helperLeafId)?.view?.contentEl;
+        }
+        
         return await renderEditMode(this.helperElement, this.scroller);
     }
 
@@ -773,6 +787,27 @@ async function renderReadMode(plugin, structureNode) {
         .querySelector(".mod-header")
         ?.cloneNode(true);
     destination.innerHTML = ""; // clear existing content
+    
+    // Find the leaf that contains this structureNode
+    for (const leaf of plugin.app.workspace.getLeavesOfType("markdown")) {
+        if (leaf.view.contentEl === structureNode) {
+            const leafFile = leaf.view.file;
+            if (leafFile) {
+                await MarkdownRenderer.render(
+                    plugin.app,
+                    await plugin.app.vault.read(leafFile),
+                    destination,
+                    leafFile.path,
+                    plugin
+                );
+                if (titleElement)
+                    destination.insertBefore(titleElement, destination.firstChild);
+                return structure;
+            }
+        }
+    }
+    
+    // Fallback to active file if we couldn't find the specific leaf
     await MarkdownRenderer.render(
         plugin.app,
         await plugin.app.workspace
