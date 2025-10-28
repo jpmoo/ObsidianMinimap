@@ -798,7 +798,7 @@ class Minimap {
         if (this.helperLeafId && this.plugin.settings.betterRendering) {
             // Get fresh reference to the helper leaf
             const helperLeaf = this.plugin.app.workspace.getLeafById(this.helperLeafId);
-            if (helperLeaf) {
+            if (helperLeaf && helperLeaf.view) {
                 // Find the original leaf that this helper is for
                 const originalLeafId = [...this.plugin.helperLeafIds.entries()].find(
                     ([origId, helpId]) => helpId === this.helperLeafId
@@ -808,11 +808,18 @@ class Minimap {
                     const originalLeaf = this.plugin.app.workspace.getLeafById(originalLeafId);
                     if (originalLeaf) {
                         // Sync the helper with the original leaf before reading
+                        console.log(`Syncing helper for leaf ${originalLeafId} (helper: ${this.helperLeafId})`);
                         await this.plugin.updateHelperForLeaf(originalLeaf);
-                        await sleep(200); // Give it time to sync
+                        await sleep(300); // Give it time to sync
+                        
+                        // After syncing, check if the helper has content
+                        const cmEditor = helperLeaf.view.contentEl?.querySelector(".cm-editor");
+                        const hasContent = cmEditor && cmEditor.textContent && cmEditor.textContent.trim().length > 0;
+                        console.log(`Helper has content: ${hasContent}`);
                     }
                 }
                 
+                // Always get a fresh reference
                 this.helperElement = helperLeaf.view.contentEl;
             }
         }
