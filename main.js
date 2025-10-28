@@ -155,20 +155,20 @@ class NoteMinimap extends Plugin {
 
         // Manage active leaf
         this.registerEvent(
-            this.app.workspace.on("active-leaf-change", (newActiveLeaf) => {
+            this.app.workspace.on("active-leaf-change", async (newActiveLeaf) => {
                 this.checkAndDealWithUserOpeningHelperLeaves(newActiveLeaf);
-                this.updateElementMinimap(); // old leaf
+                await this.updateElementMinimap(); // old leaf
                 this.activeNoteView = newActiveLeaf.view;
                 // console.log(
                 //     "Active leaf changed, current active view:",
                 //     this.activeNoteView
                 // );
-                this.updateElementMinimap(); // new leaf
+                await this.updateElementMinimap(); // new leaf
 
                 // Toggle button
                 if (newActiveLeaf?.view?.getViewType() === "markdown") {
                     if (this.settings.betterRendering)
-                        this.openHelperForLeaf(newActiveLeaf);
+                        await this.openHelperForLeaf(newActiveLeaf);
                     this.addToggleButtonToLeaf(newActiveLeaf);
                 }
             })
@@ -276,12 +276,12 @@ class NoteMinimap extends Plugin {
         }
     }
 
-    injectMinimapIntoAllNotes() {
+    async injectMinimapIntoAllNotes() {
         const leaves = this.app.workspace.getLeavesOfType("markdown");
         for (const leaf of leaves) {
-            if (this.settings.betterRendering) this.openHelperForLeaf(leaf);
+            if (this.settings.betterRendering) await this.openHelperForLeaf(leaf);
             this.addToggleButtonToLeaf(leaf);
-            this.updateElementMinimap(
+            await this.updateElementMinimap(
                 leaf.view.contentEl,
                 this.helperLeafIds.get(leaf.id)
             );
@@ -310,7 +310,7 @@ class NoteMinimap extends Plugin {
         // Ensure helper leaf is synced before rendering minimap
         if (this.settings.betterRendering && helperLeafId) {
             await this.updateHelperForLeaf(elementLeaf);
-            await sleep(500); // Give helper time to fully load and render
+            await sleep(800); // Give helper time to fully load and render
         }
         
         // Check if this leaf already has a minimap instance
@@ -362,27 +362,43 @@ class NoteMinimap extends Plugin {
         
         // Update or create the Note instance for this element
         if (existingInstance) {
-            const noteInstance = existingInstance;
-            // Update helperLeafId in case it changed when switching notes
-            noteInstance.helperLeafId = helperLeafId;
-            
-            // Get fresh helperElement reference
-            if (helperLeafId) {
-                const helperLeaf = this.app.workspace.getLeafById(helperLeafId);
-                if (helperLeaf) {
-                    noteInstance.helperElement = helperLeaf.view.contentEl;
-                } else {
-                    noteInstance.helperElement = undefined;
+            // Check if the helper leaf ID has changed - if so, destroy and recreate
+            if (existingInstance.helperLeafId !== helperLeafId || existingInstance.leafId !== leafId) {
+                // Destroy the old instance
+                existingInstance.destroy();
+                this.minimapInstances.delete(element);
+                this.resizeObserver.unobserve(element);
+                
+                // Create a new instance with the correct helper
+                const minimapInstance = new Minimap(
+                    this,
+                    element,
+                    this.settings,
+                    helperLeafId,
+                    leafId
+                );
+                this.minimapInstances.set(element, minimapInstance);
+                this.resizeObserver.observe(element);
+                this.modeObserver.observe(minimapInstance.sourceView, {
+                    attributes: true,
+                });
+                
+                // Wait for helper to sync before first render
+                if (helperLeafId && this.settings.betterRendering) {
+                    await sleep(400); // Give helper time to fully load
+                    // Refresh helperElement reference
+                    const helperLeaf = this.app.workspace.getLeafById(helperLeafId);
+                    if (helperLeaf) {
+                        minimapInstance.helperElement = helperLeaf.view.contentEl;
+                    }
                 }
+                
+                // Force initial render
+                await minimapInstance.updateIframe();
             } else {
-                noteInstance.helperElement = undefined;
+                // Same helper and leaf, just update the iframe
+                await existingInstance.updateIframe();
             }
-            
-            // Also update the element reference in case it changed
-            noteInstance.element = element;
-            
-            // Force a full refresh of the iframe content
-            await noteInstance.updateIframe();
         } else {
             const minimapInstance = new Minimap(
                 this,
@@ -455,7 +471,8 @@ class NoteMinimap extends Plugin {
         // Create the helper leaf in the right sidebar, save its id and open the same content in it
         const rightLeaf = this.app.workspace.getRightLeaf(false);
         this.helperLeafIds.set(leaf.id, rightLeaf.id);
-        this.updateHelperForLeaf(leaf);
+        await this.updateHelperForLeaf(leaf); // Wait for it to sync
+        await sleep(200); // Give it time to load
         // console.log(`Opened helper leaf ${rightLeaf.id} for original leaf ${leaf.id}`);
     }
     detachRedundantHelperLeavesAndRestoreMissing() {
@@ -502,25 +519,53 @@ class NoteMinimap extends Plugin {
 
         const oldState = helperLeaf.view.getState();
         const newState = leaf.view.getState();
+        const fileChanged = oldState.file !== newState.file;
+        
         await helperLeaf.setViewState({
             type: "markdown",
             state: newState,
         });
-        if (oldState.file !== newState.file)
-            await this.initialForceloadContentInMarkdownView(helperLeaf.view);
+        
+        // Always force full content load to ensure the entire note is rendered
+        await this.initialForceloadContentInMarkdownView(helperLeaf.view);
     }
     async initialForceloadContentInMarkdownView(view) {
         // Force the contentEl to fully load by clearing and restoring its data - I don't know why view.clear() is the only thing that works...
         if (view?.getViewType() !== "markdown") return;
+        
+        // Scale down to force render everything
         view.contentEl
             .querySelectorAll(".markdown-preview-sizer, .cm-sizer")
             .forEach((el) => {
                 el.style = "transform-origin: top right; scale: .1;";
             });
+        
         const data = await view.getViewData();
         await view.clear();
-        await sleep(100);
+        await sleep(200); // Increased wait time
         await view.setViewData(data);
+        await sleep(300); // Give it more time to render
+        
+        // Scroll to force loading of all content
+        const scroller = view.contentEl.querySelector(".cm-scroller") || 
+                        view.contentEl.querySelector(".markdown-preview-view .markdown-preview-sizer");
+        if (scroller) {
+            // Scroll to the end to force render of all content
+            const maxScroll = scroller.scrollHeight - scroller.clientHeight;
+            if (maxScroll > 0) {
+                scroller.scrollTop = maxScroll;
+                await sleep(100);
+                scroller.scrollTop = 0;
+                await sleep(100);
+            }
+        }
+        
+        // Reset the scaling
+        view.contentEl
+            .querySelectorAll(".markdown-preview-sizer, .cm-sizer")
+            .forEach((el) => {
+                el.style = "";
+            });
     }
 }
 
@@ -679,7 +724,20 @@ class Minimap {
     }
 
     async updateIframe(noteContent) {
-        if (!noteContent) noteContent = await this.getFullHTML();
+        // Get fresh helper element reference before rendering to avoid stale content
+        if (!noteContent) {
+            // Update helperElement reference fresh from the leaf
+            if (this.helperLeafId) {
+                const helperLeaf = this.plugin.app.workspace.getLeafById(this.helperLeafId);
+                if (helperLeaf && helperLeaf.view && helperLeaf.view.contentEl) {
+                    this.helperElement = helperLeaf.view.contentEl;
+                    // Wait for any pending updates
+                    await sleep(50);
+                }
+            }
+            noteContent = await this.getFullHTML();
+        }
+        
         noteContent
             .querySelectorAll(".minimap-frame, .minimap-slider")
             .forEach((el) => el.remove());
@@ -737,8 +795,26 @@ class Minimap {
         }
         
         // Update helperElement reference in case it changed
-        if (this.helperLeafId) {
-            this.helperElement = this.plugin.app.workspace.getLeafById(this.helperLeafId)?.view?.contentEl;
+        if (this.helperLeafId && this.plugin.settings.betterRendering) {
+            // Get fresh reference to the helper leaf
+            const helperLeaf = this.plugin.app.workspace.getLeafById(this.helperLeafId);
+            if (helperLeaf) {
+                // Find the original leaf that this helper is for
+                const originalLeafId = [...this.plugin.helperLeafIds.entries()].find(
+                    ([origId, helpId]) => helpId === this.helperLeafId
+                )?.[0];
+                
+                if (originalLeafId) {
+                    const originalLeaf = this.plugin.app.workspace.getLeafById(originalLeafId);
+                    if (originalLeaf) {
+                        // Sync the helper with the original leaf before reading
+                        await this.plugin.updateHelperForLeaf(originalLeaf);
+                        await sleep(200); // Give it time to sync
+                    }
+                }
+                
+                this.helperElement = helperLeaf.view.contentEl;
+            }
         }
         
         return await renderEditMode(this.helperElement, this.scroller);
@@ -898,18 +974,18 @@ async function renderEditMode(helperElement, scroller) {
     let noteContent;
     if (helperElement) {
         // Better Rendering: use helper note if available
-        // Clone the helper element
-        noteContent = helperElement.cloneNode(true);
+        // Check if helper has actual content first
+        const cmEditor = helperElement.querySelector(".cm-editor");
+        const hasContent = cmEditor && cmEditor.textContent && cmEditor.textContent.trim().length > 0;
         
-        // Remove empty state and other extraneous content
-        noteContent.querySelectorAll('[data-type="empty"]').forEach((e) => e.remove());
-        
-        // Focus on getting the actual editor content
-        const markdownSourceView = noteContent.querySelector(".markdown-source-view");
-        if (markdownSourceView && markdownSourceView.querySelector(".cm-editor")) {
-            // We have real content
+        if (hasContent) {
+            // Clone the helper element
+            noteContent = helperElement.cloneNode(true);
+            
+            // Remove empty state and other extraneous content
+            noteContent.querySelectorAll('[data-type="empty"]').forEach((e) => e.remove());
         } else {
-            // Fallback: helper didn't render properly, try scroller
+            // Helper has no real content, fall back to scroller
             console.warn("Helper element has no content, falling back to scroller");
             const sizer = scroller.firstChild;
             const element = scroller.parentElement.parentElement.parentElement;
